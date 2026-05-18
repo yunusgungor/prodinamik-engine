@@ -407,16 +407,164 @@ class HybridConsensusNode:
     """
 
     def __init__(self, node_id: str, peers: List[str] = None,
-                 state_dir: str = ".hermes/raft/"):
+                 state_dir: str = ".hermes/raft/",
+                 raft_host: str = "0.0.0.0", raft_port: int = 9001,
+                 enable_transport: bool = False):
         self.raft = DistributedStateMachine(node_id, peers, state_dir)
         self.offline = OfflineManager(self.raft)
         self.crdt = StateCRDT()
+        # TCP transport
+        self._transport = None
+        self._raft_host = raft_host
+        self._raft_port = raft_port
+        self._enable_transport = enable_transport
+        self._peer_transport: Dict[str, str] = {}  # node_id → host:port
+
+    @property
+    def transport(self):
+        """Lazy-init TCP transport"""
+        if self._enable_transport and self._transport is None:
+            from .raft_transport import RaftTCPServer
+            self._transport = RaftTCPServer(
+                node_id=self.raft.node_id,
+                host=self._raft_host,
+                port=self._raft_port,
+                handler=self._handle_raft_message,
+            )
+            self._transport.start()
+        return self._transport
+
+    def register_peer_transport(self, peer_id: str, address: str):
+        """Register a peer's TCP address (e.g., 'node-2' → '192.168.1.2:9001')"""
+        self._peer_transport[peer_id] = address
+
+    def _handle_raft_message(self, msg) -> Optional[object]:
+        """Handle incoming Raft messages from TCP transport"""
+        from .raft_transport import (
+            RaftMessage, build_vote_response, build_append_response,
+            RAFT_MSG_REQUEST_VOTE, RAFT_MSG_APPEND_ENTRIES,
+            RAFT_MSG_HEARTBEAT, RAFT_MSG_HEALTH,
+        )
+        if msg.type == RAFT_MSG_REQUEST_VOTE:
+            d = msg.data or {}
+            granted = self.raft.request_vote(
+                msg.term, msg.sender_id,
+                d.get("last_log_index", 0), d.get("last_log_term", 0),
+            )
+            return build_vote_response(self.raft.node_id, msg.term, granted)
+
+        elif msg.type == RAFT_MSG_APPEND_ENTRIES:
+            d = msg.data or {}
+            from .raft_types import LogEntry
+            entries = [LogEntry(**e) for e in d.get("entries", [])]
+            success, ci, ct = self.raft.append_entries(
+                entries, d.get("prev_log_index", -1),
+                d.get("prev_log_term", 0), d.get("leader_commit", -1),
+            )
+            return build_append_response(self.raft.node_id, msg.term, success, ci, ct)
+
+        elif msg.type == RAFT_MSG_HEARTBEAT:
+            d = msg.data or {}
+            self.raft.last_heartbeat = __import__("time").time()
+            if d.get("leader_commit", -1) > self.raft.commit_index:
+                from .raft_types import LogEntry
+                self.raft.commit_index = min(d["leader_commit"], len(self.raft.log) - 1)
+                self.raft._apply_committed()
+            return RaftMessage(
+                type="HeartbeatResponse",
+                sender_id=self.raft.node_id,
+                term=self.raft.current_term,
+                data={"ok": True},
+            )
+
+        elif msg.type == RAFT_MSG_HEALTH:
+            h = self.health()
+            return RaftMessage(type="HealthResponse", sender_id=self.raft.node_id,
+                               data=h)
+
+        return None
+
+    def start_transport(self):
+        """Enable and start TCP transport"""
+        self._enable_transport = True
+        return self.transport is not None
+
+    def stop_transport(self):
+        """Stop TCP transport"""
+        if self._transport:
+            self._transport.stop()
 
     def apply(self, command: dict) -> Tuple[bool, Optional[str]]:
         if self.offline.is_offline:
             self.offline.apply_pending(command)
             return True, None
         return self.raft.propose(command)
+
+    def raft_request_vote(self) -> int:
+        """
+        Request votes from peers via TCP (if transport enabled).
+        Returns total votes received (including self).
+        """
+        from .raft_transport import RaftTCPClient, build_vote_request
+
+        votes = 1  # Self vote
+        for peer_id in self.raft.peers:
+            if peer_id in self._peer_transport:
+                addr = self._peer_transport[peer_id]
+                msg = build_vote_request(
+                    self.raft.node_id, self.raft.current_term,
+                    len(self.raft.log) - 1, self.raft._last_log_term(),
+                )
+                resp = RaftTCPClient.send_message(addr, msg)
+                if resp and resp.data and resp.data.get("vote_granted"):
+                    votes += 1
+            else:
+                # Fallback to simulated
+                if self.raft._request_vote(peer_id):
+                    votes += 1
+        return votes
+
+    def raft_broadcast_heartbeat(self):
+        """Broadcast heartbeat to all peers via TCP (if available)"""
+        from .raft_transport import RaftTCPClient, build_heartbeat
+
+        for peer_id in self.raft.peers:
+            if peer_id in self._peer_transport:
+                addr = self._peer_transport[peer_id]
+                msg = build_heartbeat(
+                    self.raft.node_id, self.raft.current_term,
+                    self.raft.commit_index,
+                )
+                RaftTCPClient.send_message(addr, msg)
+            else:
+                self.raft._broadcast_heartbeat()
+
+    def raft_replicate_to(self, peer_id: str):
+        """Replicate log to a specific peer via TCP (if available)"""
+        from .raft_transport import RaftTCPClient, build_append_entries
+
+        if peer_id in self._peer_transport:
+            addr = self._peer_transport[peer_id]
+            entries = [{"term": e.term, "index": e.index,
+                        "command": e.command, "timestamp": e.timestamp}
+                       for e in self.raft.log]
+            msg = build_append_entries(
+                self.raft.node_id, self.raft.current_term,
+                entries, len(self.raft.log) - 1,
+                self.raft._last_log_term(), self.raft.commit_index,
+            )
+            RaftTCPClient.send_message(addr, msg)
+        else:
+            self.raft._replicate_to(peer_id)
+
+    def raft_peer_health(self, peer_id: str) -> Optional[dict]:
+        """Check peer health via TCP"""
+        from .raft_transport import RaftTCPClient
+
+        if peer_id in self._peer_transport:
+            addr = self._peer_transport[peer_id]
+            return RaftTCPClient.health_check(addr)
+        return None
 
     def reconnect(self, leader: "HybridConsensusNode"):
         print(f"   🔄 Reconnecting: {self.raft.node_id} → {leader.raft.node_id}")

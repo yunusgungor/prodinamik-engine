@@ -36,6 +36,7 @@ from .auth import AuthManager
 from .ratelimit import RateLimiter
 from .server import ProdinamikServer
 from .raft import HybridConsensusNode, RaftCluster
+from .raft_transport import RaftTCPServer, RaftTCPClient, RaftMessage
 from .chaos import ChaosEngine, ScenarioResult
 
 from .alert import AlertManager, Alert
@@ -91,6 +92,10 @@ __all__ = [
     "ProdinamikServer",
     "HybridConsensusNode",
     "RaftCluster",
+    # Phase 7: Raft TCP Transport
+    "RaftTCPServer",
+    "RaftTCPClient",
+    "RaftMessage",
     # Phase 6: Chaos Engineering
     "ChaosEngine",
     "ScenarioResult",

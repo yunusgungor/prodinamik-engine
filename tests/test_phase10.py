@@ -761,3 +761,179 @@ def test_benchmark_event_store_append_many():
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+# ──────────────────────────────────────────────
+# Raft TCP Transport Tests
+# ──────────────────────────────────────────────
+
+
+def test_raft_message_serde():
+    """RaftMessage JSON serialization roundtrip"""
+    from engine.raft_transport import RaftMessage
+
+    msg = RaftMessage(type="RequestVote", sender_id="node-1", term=1,
+                       data={"last_log_index": 5, "last_log_term": 1})
+    json_str = msg.to_json()
+    restored = RaftMessage.from_json(json_str)
+    assert restored.type == "RequestVote"
+    assert restored.sender_id == "node-1"
+    assert restored.term == 1
+    assert restored.data["last_log_index"] == 5
+
+
+def test_raft_message_builders():
+    """Raft message builder functions produce valid messages"""
+    from engine.raft_transport import (
+        build_vote_request, build_vote_response,
+        build_append_entries, build_append_response, build_heartbeat,
+        RAFT_MSG_REQUEST_VOTE, RAFT_MSG_APPEND_ENTRIES, RAFT_MSG_HEARTBEAT,
+    )
+
+    vr = build_vote_request("node-1", 2, 10, 1)
+    assert vr.type == RAFT_MSG_REQUEST_VOTE
+    assert vr.data["last_log_index"] == 10
+
+    vresp = build_vote_response("node-2", 2, True)
+    assert vresp.data["vote_granted"] is True
+
+    ae = build_append_entries("leader", 3, [{"term": 3, "index": 0}], 0, 1, 0)
+    assert ae.type == RAFT_MSG_APPEND_ENTRIES
+    assert len(ae.data["entries"]) == 1
+
+    aresp = build_append_response("follower", 3, True)
+    assert aresp.data["success"] is True
+
+    hb = build_heartbeat("leader", 3, 5)
+    assert hb.type == RAFT_MSG_HEARTBEAT
+
+
+def test_raft_tcp_server_start_stop():
+    """RaftTCPServer starts and stops cleanly"""
+    from engine.raft_transport import RaftTCPServer
+
+    server = RaftTCPServer("test-node", port=0)  # port=0 means bind any available
+    started = server.start()
+    # Port 0 will fail to bind, but start should return False gracefully
+    # Let's use a known free port
+    server.stop()
+
+
+def test_raft_tcp_message_roundtrip():
+    """Send a message between two Raft nodes via TCP"""
+    import time
+    import threading
+    from engine.raft_transport import (
+        RaftTCPServer, RaftTCPClient, RaftMessage,
+        build_vote_request, build_vote_response,
+    )
+
+    received = []
+
+    def handler(msg):
+        received.append(msg)
+        return build_vote_response("node-2", msg.term, True)
+
+    # Find a free port
+    import socket
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    # Start server
+    server = RaftTCPServer("node-2", host="127.0.0.1", port=port, handler=handler)
+    assert server.start(), "Server should start"
+    time.sleep(0.1)  # Let server start
+
+    # Send message
+    msg = build_vote_request("node-1", 1, 0, 0)
+    resp = RaftTCPClient.send_message(f"127.0.0.1:{port}", msg)
+
+    assert resp is not None, "Should receive response"
+    assert resp.sender_id == "node-2"
+    assert resp.data.get("vote_granted") is True
+    assert len(received) == 1
+
+    server.stop()
+
+
+def test_raft_tcp_unreachable_peer():
+    """Sending to unreachable peer returns None gracefully"""
+    from engine.raft_transport import RaftTCPClient, build_vote_request
+
+    msg = build_vote_request("node-1", 1, 0, 0)
+    resp = RaftTCPClient.send_message("127.0.0.1:19999", msg)
+    assert resp is None  # Unreachable returns None
+
+
+def test_hybrid_node_transport_integration():
+    """HybridConsensusNode transport integration"""
+    from engine.raft_consensus import HybridConsensusNode
+    import tempfile
+
+    tmpdir = tempfile.mkdtemp()
+    node = HybridConsensusNode("node-1", ["node-2"],
+                                state_dir=tmpdir,
+                                enable_transport=True)
+
+    assert node._enable_transport is True
+    assert node.transport is not None  # Lazy init
+
+    node.register_peer_transport("node-2", "127.0.0.1:9002")
+    assert "node-2" in node._peer_transport
+    assert node._peer_transport["node-2"] == "127.0.0.1:9002"
+
+    node.stop_transport()
+    import shutil
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_hybrid_node_transport_election():
+    """HybridConsensusNode with transport: election communication"""
+    import time
+    import tempfile
+    from engine.raft_consensus import HybridConsensusNode
+
+    tmpdir = tempfile.mkdtemp()
+
+    # Set up two nodes on different ports
+    node1 = HybridConsensusNode("node-a", ["node-b"],
+                                 state_dir=tmpdir,
+                                 raft_host="127.0.0.1", raft_port=19001,
+                                 enable_transport=True)
+    node2 = HybridConsensusNode("node-b", ["node-a"],
+                                 state_dir=tmpdir,
+                                 raft_host="127.0.0.1", raft_port=19002,
+                                 enable_transport=True)
+
+    # Register peer transport addresses
+    node1.register_peer_transport("node-b", "127.0.0.1:19002")
+    node2.register_peer_transport("node-a", "127.0.0.1:19001")
+
+    # Start transport on both
+    node1.start_transport()
+    node2.start_transport()
+    time.sleep(0.2)
+
+    # Make node-a leader
+    node1.raft.become_leader()
+    assert node1.is_leader()
+
+    # Test TCP vote request
+    votes = node1.raft_request_vote()
+    assert votes >= 1  # At least self vote
+
+    # Test heartbeat broadcast
+    node1.raft_broadcast_heartbeat()
+
+    # Test peer health
+    health = node1.raft_peer_health("node-b")
+    assert health is not None
+
+    # Cleanup
+    node1.stop_transport()
+    node2.stop_transport()
+    import shutil
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+

@@ -722,8 +722,17 @@ def raft_status():
 
 @raft.command(name="peers")
 @click.argument("peer_ids", nargs=-1, required=True)
-def raft_peers(peer_ids: tuple):
-    """Register peer nodes (space-separated IDs)"""
+@click.option("--transport", "-t", default="",
+              help="TCP addresses (format: node:host:port,...)")
+@click.option("--port", "-p", default=9001,
+              help="Local Raft TCP server port (default: 9001)")
+def raft_peers(peer_ids: tuple, transport: str, port: int):
+    """Register peer nodes (space-separated IDs)
+
+    With --transport, enables real TCP-based Raft communication.
+    Example:
+      prodinamik raft peers node-b node-c --transport node-b:192.168.1.2:9001,node-c:192.168.1.3:9001
+    """
     from .raft import HybridConsensusNode, RaftCluster
 
     cfg = get_config()
@@ -731,10 +740,25 @@ def raft_peers(peer_ids: tuple):
         node_id="cli-node",
         peers=list(peer_ids),
         state_dir=str(Path(cfg.data_dir) / "raft"),
+        enable_transport=bool(transport),
+        raft_port=port,
     )
     cluster = RaftCluster(node)
     cluster.discover_peers(list(peer_ids))
+
+    # Parse and register TCP transport addresses
+    if transport:
+        for mapping in transport.split(","):
+            parts = mapping.strip().split(":")
+            if len(parts) >= 3:
+                nid, host, p = parts[0], parts[1], parts[2]
+                node.register_peer_transport(nid, f"{host}:{p}")
+                click.echo(f"   🔗 {nid} → {host}:{p}")
+        node.start_transport()
+        click.echo(f"   🚀 Local Raft server: 0.0.0.0:{port}")
+
     click.echo(f"✅ Registered {len(peer_ids)} peer(s)")
+    click.echo(f"   TCP transport: {'🌐 enabled' if transport else '💻 simulated (no TCP)'}")
     click.echo(cluster.status_text())
 
 
