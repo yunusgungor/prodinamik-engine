@@ -1,5 +1,5 @@
-site_name: Prodinamik Engine
-site_description: Product-Agnostic Pipeline Engine — Documentation
+site_name: Prodinamik Engine v1.3
+site_description: Product-Agnostic Pipeline Engine — Formal state machine, 3-tier validation, Raft consensus, plugin ecosystem, AI-native features
 site_author: Yunus Güngör
 site_url: https://yunusgungor.github.io/prodinamik-engine
 repo_url: https://github.com/yunusgungor/prodinamik-engine
@@ -88,6 +88,8 @@ nav:
     - Metrics & Monitoring: guide/monitoring.md
     - Authentication: guide/auth.md
     - Chaos Engineering: guide/chaos.md
+    - Plugin Ecosystem: guide/plugin-ecosystem.md
+    - AI-Native Features: guide/ai-native.md
   - Development:
     - Architecture: dev/architecture.md
     - Module Reference: dev/modules.md
@@ -128,6 +130,15 @@ nav:
     - Alert Manager: api/alert.md
     - Config: api/config.md
     - Logging: api/log.md
+    - Plugin Base: api/plugin.md
+    - Plugin Registry: api/plugin_registry.md
+    - Hermes Bridge: api/hermes_bridge.md
+    - Plugin Repository: api/plugin_repo.md
+    - AI Drift Detection: api/aidetect.md
+    - Predictive Degradation: api/predict.md
+    - Skill Emergence: api/skillforge.md
+    - Run Recommender: api/recommend.md
+    - Auto-Remediation: api/autofix.md
   - About:
     - License: license.md
     - Changelog: changelog.md

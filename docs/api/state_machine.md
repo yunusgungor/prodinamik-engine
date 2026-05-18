@@ -21,7 +21,7 @@ Formal state machine runtime.
 
 **Methods:**
 
-- `__init__(config)`
+- `__init__(config, lru_size)`
 - `_build_transition_map()`
   — Transition'ları from_state bazında grupla (hızlı lookup için)
 - `validate()`
@@ -36,6 +36,7 @@ Formal state machine runtime.
 - `_find_cycles()`
 - `_find_reachable_states()`
 - `get_next_states(current_state)`
+  — Bir state'ten gidilebilecek state'leri listele (cached)
 - `can_transition(from_state, to_state, runtime)`
 - `_evaluate_condition(condition, runtime)`
 - `get_transition_type(from_state, to_state)`

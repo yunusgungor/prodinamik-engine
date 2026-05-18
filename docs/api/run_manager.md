@@ -79,7 +79,9 @@ Dizin yapısı:
 - `_update_snapshot(slug, data)`
   — Snapshot'ı atomic olarak güncelle.
 - `_append_wal(entry)`
-  — WAL'a entry ekle
+  — WAL'a entry ekle (single)
+- `_append_wal_batch(entries)`
+  — Toplu WAL yazma (batch).
 - `recover()`
   — Crash sonrası kurtarma.
 - `_compact_wal(snapshot)`

@@ -1,4 +1,4 @@
-# Configuration
+# Config
 
 Prodinamik Engine v1.0 — Configuration
 

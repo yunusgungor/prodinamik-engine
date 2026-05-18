@@ -70,7 +70,7 @@ Dizin yapısı:
 - `append(event)`
   — Event'i log'a ekle (append-only). Event ID'sini döndür.
 - `append_many(events)`
-  — Toplu event ekle
+  — Toplu event ekle (optimized batch).
 - `get(sequence)`
   — Belirli bir event'i oku
 - `get_range(start, limit)`

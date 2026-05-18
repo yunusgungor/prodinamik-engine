@@ -1,5 +1,45 @@
 # Changelog
 
+## v1.3.0 (2026-05-18)
+
+### Added
+- **AI Drift Detection** — Trend analysis (linear regression), anomaly detection (z-score), emergence detection (3+ threshold)
+- **Predictive Degradation** — MA/LR/Holt-Winters forecasting, threshold breach prediction, health scoring
+- **Run Recommender** — Transition success scoring (rate × frequency × recency), bottleneck detection
+- **Skill Emergence** — Auto SKILL.md + regression test generation, T3→T2 promotion at 10 successful fixes
+- **Auto-Remediation** — FailureMatcher (10 built-in patterns), exponential backoff, cooldown, auto-escalation
+- **Plugin Ecosystem** — PluginBase ABC, PluginRegistry (auto-discovery, dep resolution), HermesPluginBridge, PluginRepository
+- **10 plugin CLI commands** — `list`, `discover`, `enable`, `disable`, `install`, `uninstall`, `info`, `reload`, `health`
+- **4 AI CLI commands** — `ai detect`, `ai predict`, `ai recommend`, `ai status`
+- **5 new modules** — `aidetect.py`, `predict.py`, `skillforge.py`, `recommend.py`, `autofix.py`
+- **4 new modules** — `plugin.py`, `plugin_registry.py`, `hermes_bridge.py`, `plugin_repo.py`
+
+### Changed
+- Engine version: 1.2.0 → 1.3.0
+- CLI commands: 42 → 46
+- Tests: 266 → 333 (+67 new tests)
+- Python modules: 44 → 49 (+5 AI, +4 plugin)
+- `__version__` updated across all modules
+
+### Fixed
+- PluginRegistry singleton naming collision (classmethod vs instance method)
+- Repository `shutil.ignored_patterns` compatibility (Python 3.10+)
+- Engine version compatibility test drift
+- CLI docstring sync with actual command count
+
+## v1.2.0 (2026-05-18)
+
+### Added
+- Plugin Ecosystem: PluginBase ABC, PluginRegistry, HermesPluginBridge, PluginRepository
+- 10 plugin CLI commands (list, discover, enable, disable, install, uninstall, info, reload, health)
+- 4 plugin modules: plugin.py, plugin_registry.py, hermes_bridge.py, plugin_repo.py
+
+### Changed
+- Engine version: 1.1.0 → 1.2.0
+- CLI commands: 32 → 42
+- Tests: 200 → 266 (+66 plugin tests)
+- Python modules: 40 → 44 (+4 plugin)
+
 ## v1.1.0 (2026-05-18)
 
 ### Added

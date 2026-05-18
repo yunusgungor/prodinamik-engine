@@ -1,6 +1,6 @@
-# CLI Entry Point
+# CLI Entry Point (46 commands)
 
-Prodinamik Engine v1.1 — CLI Entry Point (32 commands)
+Prodinamik Engine v1.3 — CLI Entry Point (46 commands)
 
 Usage:
     prodinamik run <profile> <title>        # Start new run
@@ -157,9 +157,13 @@ Manage Raft consensus cluster
 
 Show Raft cluster status
 
-### `raft_peers(peer_ids)`
+### `raft_peers(peer_ids, transport, port)`
 
 Register peer nodes (space-separated IDs)
+
+With --transport, enables real TCP-based Raft communication.
+Example:
+  prodinamik raft peers node-b node-c --transport node-b:192.168.1.2:9001,node-c:192.168.1.3:9001
 
 ### `raft_elect()`
 
@@ -203,3 +207,63 @@ Show recent alerts
 ### `status()`
 
 Show alert manager configuration and stats
+
+### `ai()`
+
+AI-Native features — detect, predict, recommend, status
+
+### `ai_detect(drift_type, as_json)`
+
+Run AI drift detection and trend analysis
+
+### `ai_predict(metric, horizon, as_json)`
+
+Predict future degradation from metric trends
+
+### `ai_recommend(current_state, run_id, profile, as_json)`
+
+Get recommended next state transitions
+
+### `ai_status()`
+
+Show AI-Native features status and metrics
+
+### `plugin()`
+
+Manage plugins — list, install, enable, disable, info
+
+### `plugin_list(plugin_type, enabled, as_json)`
+
+List all registered plugins
+
+### `discover()`
+
+Scan for new plugins in search paths
+
+### `async enable(plugin_id)`
+
+Enable a plugin by ID
+
+### `async disable(plugin_id)`
+
+Disable a plugin by ID
+
+### `async install(plugin_id, source)`
+
+Install a plugin from source or repository
+
+### `async uninstall(plugin_id)`
+
+Uninstall a plugin
+
+### `plugin_info(plugin_id, as_json)`
+
+Show detailed plugin information
+
+### `async reload(plugin_id)`
+
+Reload plugin(s) after changes
+
+### `plugin_health()`
+
+Run health checks on all plugins

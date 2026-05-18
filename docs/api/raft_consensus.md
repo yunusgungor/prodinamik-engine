@@ -76,8 +76,26 @@ Reconnect: 5-adımlı sync prosedürü
 
 **Methods:**
 
-- `__init__(node_id, peers, state_dir)`
+- `__init__(node_id, peers, state_dir, raft_host, raft_port, enable_transport)`
+- `transport()`
+  — Lazy-init TCP transport
+- `register_peer_transport(peer_id, address)`
+  — Register a peer's TCP address (e.g., 'node-2' → '192.168.1.2:9001')
+- `_handle_raft_message(msg)`
+  — Handle incoming Raft messages from TCP transport
+- `start_transport()`
+  — Enable and start TCP transport
+- `stop_transport()`
+  — Stop TCP transport
 - `apply(command)`
+- `raft_request_vote()`
+  — Request votes from peers via TCP (if transport enabled).
+- `raft_broadcast_heartbeat()`
+  — Broadcast heartbeat to all peers via TCP (if available)
+- `raft_replicate_to(peer_id)`
+  — Replicate log to a specific peer via TCP (if available)
+- `raft_peer_health(peer_id)`
+  — Check peer health via TCP
 - `reconnect(leader)`
 - `get_state(slug)`
 - `status()`

@@ -53,9 +53,20 @@ API_MODULES = [
     ("raft_cluster", "Raft Cluster"),
     ("chaos", "Chaos Engine"),
     ("alert", "Alert Manager"),
-    ("config", "Configuration"),
+    ("config", "Config"),
     ("log", "Logging"),
-    ("cli", "CLI Entry Point"),
+    ("cli", "CLI Entry Point (46 commands)"),
+    # Plugin Ecosystem
+    ("plugin", "Plugin Base System"),
+    ("plugin_registry", "Plugin Registry"),
+    ("hermes_bridge", "Hermes Agent Bridge"),
+    ("plugin_repo", "Plugin Repository"),
+    # AI-Native Features
+    ("aidetect", "AI Drift Detection"),
+    ("predict", "Predictive Degradation"),
+    ("skillforge", "Skill Emergence Automation"),
+    ("recommend", "Run Recommender"),
+    ("autofix", "Auto-Remediation"),
 ]
 
 
