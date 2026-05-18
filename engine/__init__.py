@@ -7,7 +7,7 @@ cost tracking, budget enforcement, graceful degradation,
 and distributed consensus for multi-profile pipelines.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __author__ = "Yunus Güngör"
 __license__ = "MIT"
 
@@ -43,6 +43,21 @@ from .alert import AlertManager, Alert
 
 from .distributed import DistributedRunCoordinator, DistributedRun
 from .elector import ExternalLeaderElector
+
+from .plugin import (
+    PluginBase,
+    PluginManifest,
+    PluginState,
+    PluginStatus,
+    PluginType,
+    PluginHookType,
+    PluginTool,
+    PluginHook,
+    LoggingPlugin,
+)
+from .plugin_registry import PluginRegistry, PLUGIN_DIRS
+from .hermes_bridge import HermesPluginBridge
+from .plugin_repo import PluginRepository, RepositoryPlugin, InstallRecord
 
 __all__ = [
     "ProdinamikEngine",
@@ -109,4 +124,20 @@ __all__ = [
     "DistributedRunCoordinator",
     "DistributedRun",
     "ExternalLeaderElector",
+    # Phase 9: Plugin Ecosystem
+    "PluginBase",
+    "PluginManifest",
+    "PluginState",
+    "PluginStatus",
+    "PluginType",
+    "PluginHookType",
+    "PluginTool",
+    "PluginHook",
+    "LoggingPlugin",
+    "PluginRegistry",
+    "PLUGIN_DIRS",
+    "HermesPluginBridge",
+    "PluginRepository",
+    "RepositoryPlugin",
+    "InstallRecord",
 ]

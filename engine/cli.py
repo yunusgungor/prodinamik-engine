@@ -1,4 +1,4 @@
-"""Prodinamik Engine v1.1 — CLI Entry Point (32 commands)
+"""Prodinamik Engine v1.2 — CLI Entry Point (42 commands)
 
 Usage:
     prodinamik run <profile> <title>        # Start new run
@@ -939,6 +939,277 @@ def status():
     click.echo(f"   Channels: {', '.join(summary['channels']) or 'none'}")
     click.echo(f"   Total alerts: {summary['total_alerts']}")
     click.echo(f"   Counts: {summary['counts']}")
+
+
+# ──────────────────────────────────────────────
+# Phase 9: Plugin Ecosystem Commands
+# ──────────────────────────────────────────────
+
+
+@cli.group()
+def plugin():
+    """Manage plugins — list, install, enable, disable, info"""
+
+
+@plugin.command("list")
+@click.option("--type", "plugin_type", default=None,
+              help="Filter by plugin type (validator|adapter|hook|tool|profile|integration)")
+@click.option("--enabled", is_flag=True, help="Show only enabled plugins")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def plugin_list(plugin_type, enabled, as_json):
+    """List all registered plugins"""
+    from .plugin_registry import PluginRegistry
+    from .plugin import PluginType, PluginStatus
+
+    engine = get_engine()
+    registry = PluginRegistry.get_instance(engine)
+    registry.discover()
+
+    plugins = registry.list_plugins()
+    if enabled:
+        plugins = [p for p in plugins if p.status == PluginStatus.ENABLED]
+    if plugin_type:
+        try:
+            pt = PluginType(plugin_type)
+            plugins = [p for p in plugins if p.manifest and p.manifest.plugin_type == pt]
+        except ValueError:
+            click.echo(f"⚠️  Unknown plugin type: {plugin_type}")
+            click.echo(f"   Valid: {', '.join(t.value for t in PluginType)}")
+            return
+
+    if as_json:
+        import json as j
+        click.echo(j.dumps(registry.to_dict(), indent=2, ensure_ascii=False))
+        return
+
+    if not plugins:
+        click.echo("No plugins found. Run 'prodinamik plugin discover' to scan.")
+        return
+
+    click.echo(f"📦 Plugins ({len(plugins)}):")
+    click.echo(f"   {'ID':30s} {'Status':12s} {'Type':14s} {'Version':10s}")
+    click.echo(f"   {'─'*30} {'─'*12} {'─'*14} {'─'*10}")
+    for p in plugins:
+        if p.manifest:
+            status_icon = {"enabled": "🟢", "disabled": "⚪", "error": "🔴", "installed": "📥"}.get(p.status.value, "❓")
+            click.echo(f"   {status_icon} {p.manifest.id:28s} {p.status.value:12s} "
+                       f"{p.manifest.plugin_type.value:14s} {p.manifest.version:10s}")
+
+
+@plugin.command()
+def discover():
+    """Scan for new plugins in search paths"""
+    from .plugin_registry import PluginRegistry
+
+    engine = get_engine()
+    registry = PluginRegistry.get_instance(engine)
+    count = registry.discover()
+
+    if count:
+        click.echo(f"✅ Discovered {count} new plugin(s). Total: {registry.count}")
+    else:
+        click.echo(f"ℹ️  No new plugins found. Total: {registry.count}")
+
+    summary = registry.snapshot_metrics()
+    click.echo(f"   🟢 Enabled: {summary['enabled']}")
+    click.echo(f"   ⚪ Disabled: {summary['disabled']}")
+    click.echo(f"   🔴 Error: {summary['error']}")
+
+
+@plugin.command()
+@click.argument("plugin_id")
+async def enable(plugin_id):
+    """Enable a plugin by ID"""
+    from .plugin_registry import PluginRegistry
+
+    engine = get_engine()
+    registry = PluginRegistry.get_instance(engine)
+    registry.discover()
+
+    success = await registry.enable(plugin_id)
+    if success:
+        click.echo(f"✅ Plugin enabled: {plugin_id}")
+    else:
+        state = registry.get(plugin_id)
+        if state and state.error:
+            click.echo(f"❌ Failed to enable {plugin_id}: {state.error}")
+        else:
+            click.echo(f"❌ Plugin not found: {plugin_id}")
+
+
+@plugin.command()
+@click.argument("plugin_id")
+async def disable(plugin_id):
+    """Disable a plugin by ID"""
+    from .plugin_registry import PluginRegistry
+
+    engine = get_engine()
+    registry = PluginRegistry.get_instance(engine)
+
+    success = await registry.disable(plugin_id)
+    if success:
+        click.echo(f"✅ Plugin disabled: {plugin_id}")
+    else:
+        click.echo(f"❌ Plugin not found: {plugin_id}")
+
+
+@plugin.command()
+@click.argument("plugin_id")
+@click.option("--source", "-s", default=None, help="Source file or directory path")
+async def install(plugin_id, source):
+    """Install a plugin from source or repository"""
+    from .plugin_registry import PluginRegistry
+
+    engine = get_engine()
+    registry = PluginRegistry.get_instance(engine)
+
+    success = await registry.install(plugin_id, source=source)
+    if success:
+        click.echo(f"✅ Plugin installed: {plugin_id}")
+        click.echo("   Use 'prodinamik plugin enable <id>' to activate it.")
+    else:
+        click.echo(f"❌ Failed to install {plugin_id}")
+
+
+@plugin.command()
+@click.argument("plugin_id")
+async def uninstall(plugin_id):
+    """Uninstall a plugin"""
+    from .plugin_registry import PluginRegistry
+
+    engine = get_engine()
+    registry = PluginRegistry.get_instance(engine)
+
+    success = await registry.uninstall(plugin_id)
+    if success:
+        click.echo(f"✅ Plugin uninstalled: {plugin_id}")
+    else:
+        click.echo(f"❌ Plugin not found: {plugin_id}")
+
+
+@plugin.command("info")
+@click.argument("plugin_id")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def plugin_info(plugin_id, as_json):
+    """Show detailed plugin information"""
+    from .plugin_registry import PluginRegistry
+    from .plugin import PluginStatus
+
+    engine = get_engine()
+    registry = PluginRegistry.get_instance(engine)
+    registry.discover()
+
+    state = registry.get(plugin_id)
+    if not state:
+        click.echo(f"❌ Plugin not found: {plugin_id}")
+        return
+
+    manifest = state.manifest
+    instance = state.instance
+
+    if as_json:
+        import json as j
+        info = {
+            "id": manifest.id if manifest else plugin_id,
+            "name": manifest.name if manifest else plugin_id,
+            "version": manifest.version if manifest else "?",
+            "status": state.status.value,
+            "type": manifest.plugin_type.value if manifest else "unknown",
+            "description": manifest.description if manifest else "",
+            "author": manifest.author if manifest else "",
+            "license": manifest.license if manifest else "",
+            "hooks": manifest.hooks if manifest else [],
+            "tools": len(instance.get_tools()) if instance else 0,
+            "validators": len(instance.get_validators()) if instance else 0,
+            "dependencies": manifest.dependencies if manifest else [],
+            "error": state.error,
+            "enabled_at": state.enabled_at.isoformat() if state.enabled_at else None,
+            "error_count": state.error_count,
+        }
+        click.echo(j.dumps(info, indent=2, ensure_ascii=False))
+        return
+
+    status_icon = {"enabled": "🟢", "disabled": "⚪", "error": "🔴", "installed": "📥"}.get(state.status.value, "❓")
+
+    click.echo(f"{status_icon} Plugin: {manifest.name if manifest else plugin_id}")
+    click.echo(f"   ID:         {manifest.id if manifest else plugin_id}")
+    click.echo(f"   Version:    {manifest.version if manifest else '?'}")
+    click.echo(f"   Status:     {state.status.value}")
+    click.echo(f"   Type:       {manifest.plugin_type.value if manifest else '?'}")
+    click.echo(f"   Description: {manifest.description if manifest else 'No description'}")
+    if manifest:
+        click.echo(f"   Author:     {manifest.author or 'Unknown'}")
+        click.echo(f"   License:    {manifest.license}")
+        if manifest.dependencies:
+            click.echo(f"   Deps:       {', '.join(manifest.dependencies)}")
+        if manifest.hooks:
+            click.echo(f"   Hooks:      {', '.join(manifest.hooks)}")
+    if instance:
+        tools = instance.get_tools()
+        if tools:
+            click.echo(f"   Tools:      {len(tools)} registered")
+            for t in tools:
+                click.echo(f"     - {t.name}: {t.description}")
+        validators = instance.get_validators()
+        if validators:
+            click.echo(f"   Validators: {len(validators)} registered")
+    if state.error:
+        click.echo(f"   ⚠️  Last error: {state.error}")
+        click.echo(f"   Error count: {state.error_count}")
+
+
+@plugin.command()
+@click.option("--plugin-id", default=None, help="Specific plugin to reload (default: all)")
+async def reload(plugin_id):
+    """Reload plugin(s) after changes"""
+    from .plugin_registry import PluginRegistry
+
+    engine = get_engine()
+    registry = PluginRegistry.get_instance(engine)
+
+    if plugin_id:
+        success = await registry.reload(plugin_id)
+        if success:
+            click.echo(f"✅ Plugin reloaded: {plugin_id}")
+        else:
+            click.echo(f"❌ Failed to reload {plugin_id}")
+    else:
+        previously_enabled = [p.manifest.id for p in registry.list_plugins()
+                              if p.status.value == "enabled" and p.manifest]
+        count = registry.discover()
+        for pid in previously_enabled:
+            await registry.enable(pid)
+        click.echo(f"✅ Reloaded {count} plugins, re-enabled {len(previously_enabled)}")
+
+
+@plugin.command("health")
+def plugin_health():
+    """Run health checks on all plugins"""
+    import asyncio
+    from .plugin_registry import PluginRegistry
+
+    engine = get_engine()
+    registry = PluginRegistry.get_instance(engine)
+    registry.discover()
+
+    results = asyncio.run(registry.health_check_all())
+    if not results:
+        click.echo("No plugins to check.")
+        return
+
+    click.echo("🏥 Plugin Health:")
+    click.echo(f"   {'Plugin':30s} {'Status':10s} {'Healthy':8s}")
+    click.echo(f"   {'─'*30} {'─'*10} {'─'*8}")
+    healthy_count = 0
+    for pid, result in results.items():
+        healthy = result.get("healthy", False)
+        status = result.get("status", "unknown")
+        icon = "✅" if healthy else "❌"
+        if healthy:
+            healthy_count += 1
+        click.echo(f"   {icon} {pid:28s} {status:10s} {'✅' if healthy else '❌':8s}")
+
+    click.echo(f"\n   Healthy: {healthy_count}/{len(results)}")
 
 
 if __name__ == "__main__":
