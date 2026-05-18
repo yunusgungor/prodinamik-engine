@@ -5,6 +5,8 @@ All type definitions, enums, dataclasses, and exceptions
 extracted from state_machine.py for modularity.
 """
 
+from __future__ import annotations
+
 from enum import Enum
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -123,6 +125,11 @@ class RuntimeState:
     entered_at: datetime = field(default_factory=datetime.now)
     last_transition_at: datetime = field(default_factory=datetime.now)
     version: int = 0
+    drift_count: int = 0
+    human_approved: bool = False
+    consecutive_failures: int = 0
+    total_iterations: int = 0
+    ltl_history: dict = field(default_factory=dict)
 
 
 # ──────────────────────────────────────────────

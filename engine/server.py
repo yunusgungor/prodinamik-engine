@@ -226,6 +226,22 @@ class ProdinamikHandler(BaseHTTPRequestHandler):
     # Human Loop API Methods
     # ──────────────────────────────────────
 
+    @staticmethod
+    def _run_async(coro):
+        """Safely run an async coroutine from a thread-based HTTP handler.
+        Each HTTP request runs in its own thread — asyncio.run() creates a
+        new event loop per call, which is the correct pattern for threads."""
+        import asyncio
+        try:
+            return asyncio.run(coro)
+        except (RuntimeError, OSError):
+            loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(loop)
+                return loop.run_until_complete(coro)
+            finally:
+                loop.close()
+
     def _read_json_body(self) -> dict:
         """Read and parse JSON request body"""
         content_length = int(self.headers.get("Content-Length", 0))
@@ -335,23 +351,9 @@ class ProdinamikHandler(BaseHTTPRequestHandler):
         approved = False
         detail = ""
         if self.approval_gate:
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    result = loop.run_until_complete(
-                        self.approval_gate.approve_task(task_id, user_id, feedback)
-                    )
-                else:
-                    # Fallback if no running loop
-                    result = self.approval_gate.approve_task(task_id, user_id, feedback)
-                    if asyncio.iscoroutine(result):
-                        result = asyncio.run(result)
-            except RuntimeError:
-                # No event loop in this thread — create one
-                result = asyncio.run(
-                    self.approval_gate.approve_task(task_id, user_id, feedback)
-                )
+            result = self._run_async(
+                self.approval_gate.approve_task(task_id, user_id, feedback)
+            )
             if result:
                 approved = True
                 detail = "approval_gate"
@@ -390,21 +392,9 @@ class ProdinamikHandler(BaseHTTPRequestHandler):
         rejected = False
         detail = ""
         if self.approval_gate:
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    result = loop.run_until_complete(
-                        self.approval_gate.reject_task(task_id, user_id, feedback)
-                    )
-                else:
-                    result = self.approval_gate.reject_task(task_id, user_id, feedback)
-                    if asyncio.iscoroutine(result):
-                        result = asyncio.run(result)
-            except RuntimeError:
-                result = asyncio.run(
-                    self.approval_gate.reject_task(task_id, user_id, feedback)
-                )
+            result = self._run_async(
+                self.approval_gate.reject_task(task_id, user_id, feedback)
+            )
             if result:
                 rejected = True
                 detail = "approval_gate"
@@ -452,21 +442,9 @@ class ProdinamikHandler(BaseHTTPRequestHandler):
         }
         reason = reason_map.get(reason_str, PauseReason.MANUAL)
 
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                result = loop.run_until_complete(
-                    self.approval_gate.pause_task(task_id, reason=reason)
-                )
-            else:
-                result = self.approval_gate.pause_task(task_id, reason=reason)
-                if asyncio.iscoroutine(result):
-                    result = asyncio.run(result)
-        except RuntimeError:
-            result = asyncio.run(
-                self.approval_gate.pause_task(task_id, reason=reason)
-            )
+        result = self._run_async(
+            self.approval_gate.pause_task(task_id, reason=reason)
+        )
 
         self._json_response(200, {
             "status": "paused",

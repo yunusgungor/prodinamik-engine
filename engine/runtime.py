@@ -267,6 +267,9 @@ class AsyncEngine:
                     for v in violations[:3]:
                         self.log.debug(f"  [{v.severity}] {v.name}: {v.message}")
 
+                # Periodic cleanup of archived run state entries (memory leak prevention)
+                self._cleanup_state_entries()
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -346,6 +349,13 @@ class AsyncEngine:
         # Track entry time for new state
         self._track_entry(slug, to_state)
 
+        # Cleanup archived runs from state tracking to prevent memory leak
+        profile_state_types = profile.state_machine.config.states if profile.state_machine else {}
+        if to_state in profile_state_types:
+            state_def = profile_state_types[to_state]
+            if hasattr(state_def, 'state_type') and str(state_def.state_type) in ('TERMINAL', 'terminal'):
+                self._cleanup_state_entries()
+
         # on_enter hook (sync)
         self.hooks.trigger_sync(to_state, "on_enter", run.meta, to_state)
 
@@ -367,6 +377,21 @@ class AsyncEngine:
         if slug not in self._state_entry_time:
             self._state_entry_time[slug] = {}
         self._state_entry_time[slug][state] = time or datetime.now()
+
+    def _cleanup_state_entries(self):
+        """Remove state entry tracking for archived/non-active runs.
+        Prevents memory leak from _state_entry_time growing unbounded."""
+        active_slugs = {
+            r.slug for r in self.run_manager.list_runs(include_archived=False)
+        }
+        archived = [
+            slug for slug in self._state_entry_time
+            if slug not in active_slugs
+        ]
+        for slug in archived:
+            del self._state_entry_time[slug]
+        if archived:
+            self.log.debug(f"Cleaned up state entries for {len(archived)} archived run(s)")
 
     def _get_event_store(self, slug: str) -> EventStore:
         """Lazy-init EventStore per slug"""

@@ -103,6 +103,9 @@ class DistributedStateMachine:
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
 
+        # Thread safety
+        self._lock = threading.RLock()
+
         # Raft state
         self.role = NodeRole.FOLLOWER
         self.current_term = 0
@@ -123,85 +126,99 @@ class DistributedStateMachine:
         self.on_leader_elected: Optional[Callable[[str], None]] = None
         self.on_step_down: Optional[Callable[[], None]] = None
 
+        # Peer communication callbacks (set by HybridConsensusNode)
+        self._request_vote_callback: Optional[Callable[[str], bool]] = None
+        self._heartbeat_callback: Optional[Callable[[], None]] = None
+        self._replicate_callback: Optional[Callable[[str], None]] = None
+
+        # Pending ACKs for majority commit tracking
+        self._pending_acks: Dict[int, set] = {}
+
     def configure_transitions(self, transitions: Dict[str, List[str]]):
         self.transitions = transitions
 
     # ── Raft Core ──
 
     def become_follower(self, term: int):
-        was_leader = self.role == NodeRole.LEADER
-        self.role = NodeRole.FOLLOWER
-        self.current_term = term
-        self.voted_for = None
-        self.last_heartbeat = time.time()
-        if was_leader and self.on_step_down:
-            self.on_step_down()
+        with self._lock:
+            was_leader = self.role == NodeRole.LEADER
+            self.role = NodeRole.FOLLOWER
+            self.current_term = term
+            self.voted_for = None
+            self.last_heartbeat = time.time()
+            if was_leader and self.on_step_down:
+                self.on_step_down()
 
     def become_candidate(self):
-        self.role = NodeRole.CANDIDATE
-        self.current_term += 1
-        self.voted_for = self.node_id
-        self.last_heartbeat = time.time()
-        votes = 1
-        for peer in self.peers:
-            if self._request_vote(peer):
-                votes += 1
-        if votes > len(self.peers) // 2:
-            self.become_leader()
+        with self._lock:
+            self.role = NodeRole.CANDIDATE
+            self.current_term += 1
+            self.voted_for = self.node_id
+            self.last_heartbeat = time.time()
+            votes = 1
+            for peer in self.peers:
+                if self._request_vote(peer):
+                    votes += 1
+            if votes > len(self.peers) // 2:
+                self.become_leader()
 
     def become_leader(self):
-        self.role = NodeRole.LEADER
-        self._broadcast_heartbeat()
-        if self.on_leader_elected:
-            self.on_leader_elected(self.node_id)
+        with self._lock:
+            self.role = NodeRole.LEADER
+            self._broadcast_heartbeat()
+            if self.on_leader_elected:
+                self.on_leader_elected(self.node_id)
 
     def _start_election(self):
         """Force an election cycle"""
         self.become_candidate()
         if self.role == NodeRole.CANDIDATE:
-            self.become_candidate()
+            pass  # Already candidate, no redundant call
 
     def append_entries(self, entries: List[LogEntry],
                        prev_log_index: int, prev_log_term: int,
                        leader_commit: int) -> Tuple[bool, int, int]:
-        if prev_log_index >= 0 and prev_log_index < len(self.log):
-            if self.log[prev_log_index].term != prev_log_term:
-                return False, prev_log_index, self.log[prev_log_index].term
-        for i, entry in enumerate(entries):
-            idx = prev_log_index + 1 + i
-            if idx < len(self.log):
-                if self.log[idx].term != entry.term:
-                    self.log = self.log[:idx]
+        with self._lock:
+            if prev_log_index >= 0 and prev_log_index < len(self.log):
+                if self.log[prev_log_index].term != prev_log_term:
+                    return False, prev_log_index, self.log[prev_log_index].term
+            for i, entry in enumerate(entries):
+                idx = prev_log_index + 1 + i
+                if idx < len(self.log):
+                    if self.log[idx].term != entry.term:
+                        self.log = self.log[:idx]
+                        self.log.append(entry)
+                else:
                     self.log.append(entry)
-            else:
-                self.log.append(entry)
-        if leader_commit > self.commit_index:
-            self.commit_index = min(leader_commit, len(self.log) - 1)
-            self._apply_committed()
-        self.last_heartbeat = time.time()
-        self._save_log()
-        return True, 0, 0
+            if leader_commit > self.commit_index:
+                self.commit_index = min(leader_commit, len(self.log) - 1)
+                self._apply_committed()
+            self.last_heartbeat = time.time()
+            self._save_log()
+            return True, 0, 0
 
     def request_vote(self, candidate_term: int, candidate_id: str,
                      last_log_index: int, last_log_term: int) -> bool:
-        if candidate_term < self.current_term:
+        with self._lock:
+            if candidate_term < self.current_term:
+                return False
+            if candidate_term > self.current_term:
+                self.become_follower(candidate_term)
+            if (self.voted_for is None or self.voted_for == candidate_id) \
+               and last_log_term >= self._last_log_term():
+                self.voted_for = candidate_id
+                self.last_heartbeat = time.time()
+                return True
             return False
-        if candidate_term > self.current_term:
-            self.become_follower(candidate_term)
-        if (self.voted_for is None or self.voted_for == candidate_id) \
-           and last_log_term >= self._last_log_term():
-            self.voted_for = candidate_id
-            self.last_heartbeat = time.time()
-            return True
-        return False
 
     # ── State Machine Apply ──
 
     def _apply_committed(self):
-        while self.last_applied < self.commit_index:
-            self.last_applied += 1
-            entry = self.log[self.last_applied]
-            self._apply_command(entry.command)
+        with self._lock:
+            while self.last_applied < self.commit_index:
+                self.last_applied += 1
+                entry = self.log[self.last_applied]
+                self._apply_command(entry.command)
 
     def _apply_command(self, command: dict):
         slug = command.get("slug")
@@ -230,20 +247,50 @@ class DistributedStateMachine:
         return self.state_machine.get(slug)
 
     def propose(self, command: dict) -> Tuple[bool, Optional[str]]:
-        if self.role != NodeRole.LEADER:
-            return False, "Not leader"
-        entry = LogEntry(
-            term=self.current_term,
-            index=len(self.log),
-            command=command,
-        )
-        self.log.append(entry)
-        self.commit_index = len(self.log) - 1
-        self._apply_committed()
-        self._save_log()
-        for peer in self.peers:
-            self._replicate_to(peer)
+        with self._lock:
+            if self.role != NodeRole.LEADER:
+                return False, "Not leader"
+            entry = LogEntry(
+                term=self.current_term,
+                index=len(self.log),
+                command=command,
+            )
+            self.log.append(entry)
+            self._save_log()
+
+            # Track leader's own acknowledgment
+            index = entry.index
+            self._pending_acks[index] = {self.node_id}
+
+            # Commit if we have majority (leader ack alone may be enough for 1-node clusters)
+            if self._check_majority(index):
+                self.commit_index = index
+                self._apply_committed()
+                self._save_log()
+
+            # Replicate to peers
+            for peer in self.peers:
+                self._replicate_to(peer)
         return True, None
+
+    def _check_majority(self, index: int) -> bool:
+        """Check if a log entry has been acknowledged by a majority of nodes."""
+        acks = self._pending_acks.get(index, set())
+        return len(acks) >= len(self.peers) // 2 + 1
+
+    def ack_entry(self, index: int, peer_id: str) -> bool:
+        """Peer acknowledges a log entry. Returns True if majority reached."""
+        with self._lock:
+            if index not in self._pending_acks:
+                self._pending_acks[index] = set()
+            self._pending_acks[index].add(peer_id)
+            if self._check_majority(index):
+                if index > self.commit_index:
+                    self.commit_index = index
+                    self._apply_committed()
+                    self._save_log()
+                return True
+            return False
 
     # ── Persistence ──
 
@@ -258,15 +305,16 @@ class DistributedStateMachine:
         return []
 
     def _save_log(self):
-        path = self.state_dir / f"raft_log_{self.node_id}.json"
-        path.write_text(
-            json.dumps([
-                {"term": e.term, "index": e.index,
-                 "command": e.command, "timestamp": e.timestamp}
-                for e in self.log
-            ], indent=2, ensure_ascii=False),
-            encoding="utf-8"
-        )
+        with self._lock:
+            path = self.state_dir / f"raft_log_{self.node_id}.json"
+            path.write_text(
+                json.dumps([
+                    {"term": e.term, "index": e.index,
+                     "command": e.command, "timestamp": e.timestamp}
+                    for e in self.log
+                ], indent=2, ensure_ascii=False),
+                encoding="utf-8"
+            )
 
     def _load_snapshot(self) -> Dict[str, NodeState]:
         path = self.state_dir / f"raft_snapshot_{self.node_id}.json"
@@ -296,13 +344,17 @@ class DistributedStateMachine:
     # ── Peer Communication (simüle) ──
 
     def _request_vote(self, peer: str) -> bool:
+        if self._request_vote_callback is not None:
+            return self._request_vote_callback(peer)
         return True
 
     def _broadcast_heartbeat(self):
-        pass
+        if self._heartbeat_callback is not None:
+            self._heartbeat_callback()
 
     def _replicate_to(self, peer: str):
-        pass
+        if self._replicate_callback is not None:
+            self._replicate_callback(peer)
 
     def provide_merge(self, slug: str, merged_state: NodeState) -> Tuple[bool, Optional[str]]:
         if self.role != NodeRole.LEADER:
@@ -422,6 +474,12 @@ class HybridConsensusNode:
         self.raft = DistributedStateMachine(node_id, peers, state_dir)
         self.offline = OfflineManager(self.raft)
         self.crdt = StateCRDT()
+
+        # Wire peer communication callbacks
+        self.raft._request_vote_callback = lambda peer: self._check_vote(peer)
+        self.raft._heartbeat_callback = lambda: self._do_heartbeat()
+        self.raft._replicate_callback = lambda peer: self._do_replicate(peer)
+
         # TCP transport
         self._transport = None
         self._raft_host = raft_host
@@ -509,6 +567,50 @@ class HybridConsensusNode:
             return True, None
         return self.raft.propose(command)
 
+    def _check_vote(self, peer_id: str) -> bool:
+        """Check vote from a specific peer. Uses TCP if available, otherwise returns True (simulated)."""
+        if peer_id in self._peer_transport:
+            from .raft_transport import RaftTCPClient, build_vote_request
+            addr = self._peer_transport[peer_id]
+            msg = build_vote_request(
+                self.raft.node_id, self.raft.current_term,
+                len(self.raft.log) - 1, self.raft._last_log_term(),
+            )
+            resp = RaftTCPClient.send_message(addr, msg)
+            if resp and resp.data and resp.data.get("vote_granted"):
+                return True
+            return False
+        # Simulated: backward-compatible default
+        return True
+
+    def _do_heartbeat(self):
+        """Broadcast heartbeat to registered TCP peers (no fallback to avoid recursion)."""
+        from .raft_transport import RaftTCPClient, build_heartbeat
+
+        for peer_id in self.raft.peers:
+            if peer_id in self._peer_transport:
+                addr = self._peer_transport[peer_id]
+                msg = build_heartbeat(
+                    self.raft.node_id, self.raft.current_term,
+                    self.raft.commit_index,
+                )
+                RaftTCPClient.send_message(addr, msg)
+
+    def _do_replicate(self, peer_id: str):
+        """Replicate log to a peer via TCP if registered (no fallback to avoid recursion)."""
+        if peer_id in self._peer_transport:
+            from .raft_transport import RaftTCPClient, build_append_entries
+            addr = self._peer_transport[peer_id]
+            entries = [{"term": e.term, "index": e.index,
+                        "command": e.command, "timestamp": e.timestamp}
+                       for e in self.raft.log]
+            msg = build_append_entries(
+                self.raft.node_id, self.raft.current_term,
+                entries, len(self.raft.log) - 1,
+                self.raft._last_log_term(), self.raft.commit_index,
+            )
+            RaftTCPClient.send_message(addr, msg)
+
     def raft_request_vote(self) -> int:
         """
         Request votes from peers via TCP (if transport enabled).
@@ -535,36 +637,13 @@ class HybridConsensusNode:
 
     def raft_broadcast_heartbeat(self):
         """Broadcast heartbeat to all peers via TCP (if available)"""
-        from .raft_transport import RaftTCPClient, build_heartbeat
-
-        for peer_id in self.raft.peers:
-            if peer_id in self._peer_transport:
-                addr = self._peer_transport[peer_id]
-                msg = build_heartbeat(
-                    self.raft.node_id, self.raft.current_term,
-                    self.raft.commit_index,
-                )
-                RaftTCPClient.send_message(addr, msg)
-            else:
-                self.raft._broadcast_heartbeat()
+        # Use _do_heartbeat to avoid recursion through callback
+        self._do_heartbeat()
 
     def raft_replicate_to(self, peer_id: str):
         """Replicate log to a specific peer via TCP (if available)"""
-        from .raft_transport import RaftTCPClient, build_append_entries
-
-        if peer_id in self._peer_transport:
-            addr = self._peer_transport[peer_id]
-            entries = [{"term": e.term, "index": e.index,
-                        "command": e.command, "timestamp": e.timestamp}
-                       for e in self.raft.log]
-            msg = build_append_entries(
-                self.raft.node_id, self.raft.current_term,
-                entries, len(self.raft.log) - 1,
-                self.raft._last_log_term(), self.raft.commit_index,
-            )
-            RaftTCPClient.send_message(addr, msg)
-        else:
-            self.raft._replicate_to(peer_id)
+        # Use _do_replicate to avoid recursion through callback
+        self._do_replicate(peer_id)
 
     def raft_peer_health(self, peer_id: str) -> Optional[dict]:
         """Check peer health via TCP"""

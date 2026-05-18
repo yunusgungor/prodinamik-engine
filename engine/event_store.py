@@ -9,6 +9,7 @@ Append-only event log with:
 """
 
 import json
+import threading
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -190,6 +191,7 @@ class EventStore:
         self._last_sequence = self._load_last_sequence()
         self._index: Dict[int, str] = {}
         self._index = self._load_index()
+        self._lock = threading.RLock()
 
     # ──────────────────────────────────────
     # Write
@@ -197,22 +199,23 @@ class EventStore:
 
     def append(self, event: Event) -> int:
         """Event'i log'a ekle (append-only). Event ID'sini döndür."""
-        seq = self._next_sequence()
-        event.sequence = seq
+        with self._lock:
+            seq = self._next_sequence()
+            event.sequence = seq
 
-        filename = f"{seq:010d}.json"
-        path = self.events_dir / filename
+            filename = f"{seq:010d}.json"
+            path = self.events_dir / filename
 
-        path.write_text(
-            json.dumps(event.dict(), ensure_ascii=False, default=str),
-            encoding="utf-8"
-        )
+            path.write_text(
+                json.dumps(event.dict(), ensure_ascii=False, default=str),
+                encoding="utf-8"
+            )
 
-        self._index[seq] = filename
-        self._last_sequence = seq
-        self._save_index()
+            self._index[seq] = filename
+            self._last_sequence = seq
+            self._save_index()
 
-        return seq
+            return seq
 
     def append_many(self, events: List[Event]) -> List[int]:
         """
@@ -225,25 +228,26 @@ class EventStore:
         if not events:
             return []
 
-        seqs = []
-        start_seq = self._last_sequence + 1
+        with self._lock:
+            seqs = []
+            start_seq = self._last_sequence + 1
 
-        for i, event in enumerate(events):
-            seq = start_seq + i
-            event.sequence = seq
-            seqs.append(seq)
+            for i, event in enumerate(events):
+                seq = start_seq + i
+                event.sequence = seq
+                seqs.append(seq)
 
-            filename = f"{seq:010d}.json"
-            path = self.events_dir / filename
-            path.write_text(
-                json.dumps(event.dict(), ensure_ascii=False, default=str),
-                encoding="utf-8"
-            )
-            self._index[seq] = filename
+                filename = f"{seq:010d}.json"
+                path = self.events_dir / filename
+                path.write_text(
+                    json.dumps(event.dict(), ensure_ascii=False, default=str),
+                    encoding="utf-8"
+                )
+                self._index[seq] = filename
 
-        self._last_sequence = seqs[-1]
-        self._save_index()  # Tek seferde kaydet
-        return seqs
+            self._last_sequence = seqs[-1]
+            self._save_index()  # Tek seferde kaydet
+            return seqs
 
     # ──────────────────────────────────────
     # Read
@@ -340,27 +344,28 @@ class EventStore:
         purged = 0
         to_delete = []
 
-        for seq, filename in list(self._index.items()):
-            path = self.events_dir / filename
-            if not path.exists():
-                to_delete.append(seq)
-                continue
-
-            try:
-                event = self._parse_event(path)
-                if self.retention.should_purge(event, now):
-                    path.unlink()
+        with self._lock:
+            for seq, filename in list(self._index.items()):
+                path = self.events_dir / filename
+                if not path.exists():
                     to_delete.append(seq)
-                    purged += 1
-            except (json.JSONDecodeError, OSError):
-                to_delete.append(seq)
-                continue
+                    continue
 
-        for seq in to_delete:
-            del self._index[seq]
+                try:
+                    event = self._parse_event(path)
+                    if self.retention.should_purge(event, now):
+                        path.unlink()
+                        to_delete.append(seq)
+                        purged += 1
+                except (json.JSONDecodeError, OSError):
+                    to_delete.append(seq)
+                    continue
 
-        if purged > 0 or to_delete:
-            self._save_index()
+            for seq in to_delete:
+                del self._index[seq]
+
+            if purged > 0 or to_delete:
+                self._save_index()
 
         return purged
 
@@ -374,37 +379,39 @@ class EventStore:
         cutoff = datetime.now() - self.retention.COMPACTION_AGE
         old_events = []
 
-        for seq, filename in list(self._index.items()):
-            path = self.events_dir / filename
-            if not path.exists():
-                continue
+        with self._lock:
+            for seq, filename in list(self._index.items()):
+                path = self.events_dir / filename
+                if not path.exists():
+                    continue
 
-            try:
-                event = self._parse_event(path)
-                event_time = datetime.fromisoformat(event.timestamp)
-                if event_time < cutoff:
-                    old_events.append(event)
-            except (json.JSONDecodeError, OSError, ValueError):
-                continue
+                try:
+                    event = self._parse_event(path)
+                    event_time = datetime.fromisoformat(event.timestamp)
+                    if event_time < cutoff:
+                        old_events.append(event)
+                except (json.JSONDecodeError, OSError, ValueError):
+                    continue
 
-        if len(old_events) < self.retention.COMPACTION_BATCH:
-            return None  # Yeterli event yok
+            if len(old_events) < self.retention.COMPACTION_BATCH:
+                return None  # Yeterli event yok
 
-        # Detaylı event'leri sil
-        detail_events = [e for e in old_events 
-                        if e.event_type == EventType.VALIDATION_DETAIL.value]
-        for e in detail_events:
-            path = self.events_dir / f"{e.sequence:010d}.json"
-            if path.exists():
-                path.unlink()
-            del self._index[e.sequence]
+            # Detaylı event'leri sil
+            detail_events = [e for e in old_events 
+                            if e.event_type == EventType.VALIDATION_DETAIL.value]
+            for e in detail_events:
+                path = self.events_dir / f"{e.sequence:010d}.json"
+                if path.exists():
+                    path.unlink()
+                del self._index[e.sequence]
 
-        # Özet event oluştur
-        summary = self._summarize(old_events, slug)
-        summary_seq = self.append(summary)
+            # Özet event oluştur
+            summary = self._summarize(old_events, slug)
+            summary_seq = self.append(summary)
 
-        self._save_index()
-        return summary
+            # _save_index zaten append içinde çağrılır, ama dels için tekrar kaydet
+            self._save_index()
+            return summary
 
     def _summarize(self, events: List[Event], slug: str) -> Event:
         """Event listesini özetle"""
