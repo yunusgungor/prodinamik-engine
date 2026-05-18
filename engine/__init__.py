@@ -41,6 +41,9 @@ from .chaos import ChaosEngine, ScenarioResult
 
 from .alert import AlertManager, Alert
 
+from .distributed import DistributedRunCoordinator, DistributedRun
+from .elector import ExternalLeaderElector
+
 __all__ = [
     "ProdinamikEngine",
     "ProdinamikConfig",
@@ -102,4 +105,8 @@ __all__ = [
     # Phase 7: Monitoring & Alerting
     "AlertManager",
     "Alert",
+    # Phase 8: Distributed & Election
+    "DistributedRunCoordinator",
+    "DistributedRun",
+    "ExternalLeaderElector",
 ]

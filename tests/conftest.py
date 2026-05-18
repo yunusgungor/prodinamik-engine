@@ -92,3 +92,22 @@ def run_manager():
     from engine.run_manager import RunManager
     tmpdir = tempfile.mkdtemp()
     return tmpdir, RunManager(base_path=os.path.join(tmpdir, ".hermes"))
+
+
+# ──────────────────────────────────────────────
+# Chaos Engine Fixture
+# ──────────────────────────────────────────────
+
+
+@pytest.fixture
+def chaos_engine():
+    """ChaosEngine with temp directory (returns chaos, engine, tmpdir)"""
+    from engine.chaos import ChaosEngine
+    from engine.config import ProdinamikConfig
+    from engine.runtime import AsyncEngine
+
+    tmpdir = tempfile.mkdtemp()
+    cfg = ProdinamikConfig.load()
+    engine = AsyncEngine(cfg)
+    chaos = ChaosEngine(engine, base_path=tmpdir)
+    return chaos, engine, tmpdir

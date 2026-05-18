@@ -38,6 +38,10 @@ def cleanup(tmpdir):
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+# ──────────────────────────────────────────────
+# Distributed Run Coordinator Tests
+# 
+
 def test_chaos_scenario_list(chaos_engine):
     """List returns all 10 scenarios"""
     chaos, _, tmpdir = chaos_engine
@@ -587,6 +591,10 @@ def test_event_store_append_many():
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+# ──────────────────────────────────────────────
+# Distributed Run Coordinator Tests
+# 
+
 def test_event_store_append_many_empty():
     """append_many with empty list returns []"""
     import tempfile
@@ -598,6 +606,10 @@ def test_event_store_append_many_empty():
     assert store.append_many([]) == []
     shutil.rmtree(tmpdir, ignore_errors=True)
 
+
+# ──────────────────────────────────────────────
+# Distributed Run Coordinator Tests
+# 
 
 def test_event_store_append_many_large_batch():
     """append_many handles 100 events"""
@@ -617,6 +629,10 @@ def test_event_store_append_many_large_batch():
     assert store.event_count == 100
     shutil.rmtree(tmpdir, ignore_errors=True)
 
+
+# ──────────────────────────────────────────────
+# Distributed Run Coordinator Tests
+# 
 
 def test_run_manager_wal_batch():
     """RunManager._append_wal_batch writes batch file"""
@@ -649,6 +665,10 @@ def test_run_manager_wal_batch():
 
     shutil.rmtree(tmpdir, ignore_errors=True)
 
+
+# ──────────────────────────────────────────────
+# Distributed Run Coordinator Tests
+# 
 
 def test_state_machine_lru_cache():
     """StateMachine LRU cache caches get_next_states"""
@@ -762,6 +782,8 @@ def test_benchmark_event_store_append_many():
 
 
 # ──────────────────────────────────────────────
+# Distributed Run Coordinator Tests
+# ──────────────────────────────────────────────# ──────────────────────────────────────────────
 # Raft TCP Transport Tests
 # ──────────────────────────────────────────────
 
@@ -887,6 +909,10 @@ def test_hybrid_node_transport_integration():
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+# ──────────────────────────────────────────────
+# Distributed Run Coordinator Tests
+# 
+
 def test_hybrid_node_transport_election():
     """HybridConsensusNode with transport: election communication"""
     import time
@@ -937,3 +963,100 @@ def test_hybrid_node_transport_election():
 
 
 
+def test_distributed_run_create():
+    from engine.distributed import DistributedRunCoordinator
+    coord = DistributedRunCoordinator()
+    run, err = coord.create_run("software", "Test run", slug="test-st")
+    assert run is not None
+    assert run.slug == "test-st"
+    run2, err = coord.create_run("software", "Test", slug="test-st")
+    assert run2 is None
+
+
+def test_distributed_run_transition():
+    from engine.distributed import DistributedRunCoordinator
+    coord = DistributedRunCoordinator()
+    coord.create_run("sw", "T", slug="tt")
+    ok, _ = coord.transition_run("tt", "running")
+    assert ok
+    assert coord.get_run("tt").current_state == "running"
+
+
+def test_distributed_run_sync():
+    from engine.distributed import DistributedRunCoordinator
+    coord = DistributedRunCoordinator()
+    coord.sync_from_raft({"type": "distributed_create", "slug": "r",
+                          "profile": "sw", "title": "R", "owner": "n1"})
+    assert coord.get_run("r") is not None
+    coord.sync_from_raft({"type": "distributed_transition", "slug": "r", "to_state": "done"})
+    assert coord.get_run("r").current_state == "done"
+
+
+def test_elector_no_backend():
+    from engine.elector import ExternalLeaderElector
+    e = ExternalLeaderElector(backend="etcd", endpoints=["http://127.0.0.1:2379"], node_id="t")
+    assert not e.is_connected
+    assert not e.campaign()
+    e.resign()
+
+
+def test_alert_basic():
+    from engine.alert import Alert, AlertManager
+    a = Alert("info", "Test")
+    assert a.level == "info"
+    m = AlertManager()
+    m.send_alert("warning", "Warn")
+    assert m.summary()["total_alerts"] == 1
+
+
+def test_prometheus_rules():
+    import yaml
+    with open("monitoring/prometheus-alerts.yml") as f:
+        d = yaml.safe_load(f)
+    assert len(d["groups"][0]["rules"]) >= 10
+
+
+def test_grafana_dashboard():
+    import json
+    with open("monitoring/grafana-dashboard.json") as f:
+        d = json.load(f)
+    assert d["title"] == "Prodinamik Engine"
+    assert len(d["panels"]) >= 10
+
+
+def test_event_store_batch():
+    import tempfile, shutil
+    from engine.event_store import EventStore, Event
+    t = tempfile.mkdtemp()
+    s = EventStore(base_path=t, slug="p")
+    seqs = s.append_many([Event(0, "p", "2026-01-01", "t", {"n": i}) for i in range(10)])
+    assert len(seqs) == 10
+    shutil.rmtree(t)
+
+
+def test_state_machine_lru():
+    from engine.state_machine import StateMachine, StateMachineParser
+
+    yaml_str = """profile: test
+name: test
+version: "1.0"
+states:
+  a:
+    type: initial
+    max_reentries: 1
+  b:
+    type: intermediate
+    max_reentries: 5
+  c:
+    type: terminal
+    max_reentries: 0
+transitions:
+  a -> b:
+    type: REVERSIBLE
+  b -> c:
+    type: REVERSIBLE
+"""
+    sm = StateMachine(StateMachineParser.parse_string(yaml_str), lru_size=10)
+
+    assert sm.get_next_states("a") == ["b"]
+    assert "next:a" in sm._transition_cache
