@@ -832,5 +832,90 @@ def chaos_report(scenario: Optional[str]):
         click.echo(chaos.report())
 
 
+# ──────────────────────────────────────────────
+# Alert Commands
+# ──────────────────────────────────────────────
+
+
+@cli.group()
+def alert():
+    """Send and manage alerts to Slack/Telegram"""
+    pass
+
+
+@alert.command()
+@click.argument("level", type=click.Choice(["info", "warning", "critical"]))
+@click.argument("title")
+@click.option("--message", "-m", default="", help="Alert message body")
+@click.option("--metric", "-M", multiple=True, help="Key=value metrics (e.g. usage=0.85)")
+def send(level, title, message, metric):
+    """Send an alert to configured channels"""
+    from engine.alert import alert_config_from_env
+
+    mgr = alert_config_from_env()
+    if not mgr.is_configured:
+        click.echo("⚠️  No alert channels configured. Set PRODINAMIK_SLACK_WEBHOOK, "
+                   "PRODINAMIK_TELEGRAM_TOKEN, or PRODINAMIK_TELEGRAM_CHAT_ID env vars.")
+        return
+
+    metrics = {}
+    for m in metric:
+        if "=" in m:
+            k, v = m.split("=", 1)
+            metrics[k] = v
+
+    alert_obj = mgr.send_alert(level, title, message, metrics)
+    click.echo(f"✅ Alert sent: {alert_obj.emoji} [{level.upper()}] {title}")
+    click.echo(f"   Channels: {', '.join(mgr.enabled_channels)}")
+    click.echo(f"   ID: {alert_obj.id}")
+
+
+@alert.command()
+@click.option("--channel", "-c", default="slack", help="Channel to test: slack, telegram, generic")
+def test(channel):
+    """Send a test alert to verify channel configuration"""
+    from engine.alert import alert_config_from_env
+
+    mgr = alert_config_from_env()
+    if channel not in mgr.enabled_channels:
+        click.echo(f"⚠️  Channel '{channel}' not configured. Available: {mgr.enabled_channels or 'none'}")
+        return
+
+    success = mgr.test(channel)
+    if success:
+        click.echo(f"✅ Test alert sent to {channel}")
+    else:
+        click.echo(f"⚠️  Test may have failed — check channel")
+
+
+@alert.command()
+@click.option("--limit", "-n", default=10, help="Number of recent alerts")
+@click.option("--min-level", "-l", default="info", help="Minimum severity level")
+def recent(limit, min_level):
+    """Show recent alerts"""
+    from engine.alert import alert_config_from_env
+
+    mgr = alert_config_from_env()
+    alerts = mgr.recent(limit=limit, min_level=min_level)
+    if not alerts:
+        click.echo("No alerts recorded.")
+        return
+    for a in alerts:
+        click.echo(f"  {a.emoji} [{a.level.upper():8s}] {a.title} — {a.timestamp}")
+
+
+@alert.command()
+def status():
+    """Show alert manager configuration and stats"""
+    from engine.alert import alert_config_from_env
+
+    mgr = alert_config_from_env()
+    summary = mgr.summary()
+    click.echo("📡 Alert Manager Status")
+    click.echo(f"   Channels: {', '.join(summary['channels']) or 'none'}")
+    click.echo(f"   Total alerts: {summary['total_alerts']}")
+    click.echo(f"   Counts: {summary['counts']}")
+
+
 if __name__ == "__main__":
     cli()

@@ -1,0 +1,634 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "title": "Prodinamik Engine",
+  "version": 1,
+  "description": "Prodinamik Engine — Comprehensive monitoring dashboard for the Product-Agnostic Pipeline Engine",
+  "schemaVersion": 39,
+  "tags": ["prodinamik", "pipeline", "engine"],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h"],
+    "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
+  },
+  "panels": [
+    {
+      "title": "Engine Health",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "collapsed": false
+    },
+    {
+      "title": "Uptime",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
+      "description": "Engine uptime in seconds",
+      "targets": [{
+        "expr": "prodinamik_engine_info{version=\"1.1.0\"}",
+        "legendFormat": "Uptime",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 60},
+              {"color": "green", "value": 300}
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "title": "Degradation Level",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
+      "description": "Current degradation level: FULL, DEGRADED, or SURVIVAL",
+      "targets": [{
+        "expr": "prodinamik_engine_health{status=\"full\"}",
+        "legendFormat": "FULL"
+      }, {
+        "expr": "prodinamik_engine_health{status=\"degraded\"}",
+        "legendFormat": "DEGRADED"
+      }, {
+        "expr": "prodinamik_engine_health{status=\"survival\"}",
+        "legendFormat": "SURVIVAL"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 2}
+            ]
+          },
+          "mappings": [
+            {"type": "value", "value": "1", "text": "✅ FULL", "color": "green"},
+            {"type": "value", "value": "2", "text": "⚠️ DEGRADED", "color": "yellow"},
+            {"type": "value", "value": "3", "text": "🔴 SURVIVAL", "color": "red"}
+          ]
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "title": "Health Score",
+      "type": "gauge",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
+      "description": "Overall engine health score (0-100%)",
+      "targets": [{
+        "expr": "prodinamik_engine_health_score",
+        "legendFormat": "Health"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "green", "value": 80}
+            ]
+          }
+        }
+      },
+      "options": {
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      }
+    },
+    {
+      "title": "Active Runs",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+      "description": "Number of currently active runs",
+      "targets": [{
+        "expr": "prodinamik_runs_active",
+        "legendFormat": "Active"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "red", "value": 100}
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "title": "Total Runs",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 1},
+      "description": "Total runs created (cumulative)",
+      "targets": [{
+        "expr": "prodinamik_runs_created_total",
+        "legendFormat": "Total"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"fixed": "blue"}
+        }
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "title": "Auth Failures",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+      "description": "Authentication failures in last 5m",
+      "targets": [{
+        "expr": "rate(prodinamik_auth_failures_total[5m])",
+        "legendFormat": "rate"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "title": "Run Activity",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "collapsed": false
+    },
+    {
+      "title": "Run Creation Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "description": "Rate of new run creation",
+      "targets": [{
+        "expr": "rate(prodinamik_runs_created_total[5m])",
+        "legendFormat": "Created"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["mean", "max", "min"], "displayMode": "table", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+    {
+      "title": "Active Runs Over Time",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "description": "Number of active runs over time",
+      "targets": [{
+        "expr": "prodinamik_runs_active",
+        "legendFormat": "Active"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["mean", "max", "min"], "displayMode": "table", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+    {
+      "title": "State Distribution",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "description": "Distribution of runs by current state",
+      "targets": [{
+        "expr": "count by (state) (prodinamik_run_state)",
+        "legendFormat": "{{ state }}"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "options": {
+        "displayLabels": ["name", "percent", "value"],
+        "legend": {"displayMode": "table", "placement": "right"}
+      }
+    },
+    {
+      "title": "Runs by Profile",
+      "type": "bargauge",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "description": "Number of runs per profile type",
+      "targets": [{
+        "expr": "count by (profile) (prodinamik_run_state)",
+        "legendFormat": "{{ profile }}"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "min": 0
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      }
+    },
+
+    {
+      "title": "Performance",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 22},
+      "collapsed": false
+    },
+    {
+      "title": "Transition Latency (P50/P95/P99)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 23},
+      "description": "State transition latency percentiles",
+      "targets": [{
+        "expr": "prodinamik_transition_latency_ms_p50",
+        "legendFormat": "P50"
+      }, {
+        "expr": "prodinamik_transition_latency_ms_p95",
+        "legendFormat": "P95"
+      }, {
+        "expr": "prodinamik_transition_latency_ms_p99",
+        "legendFormat": "P99"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["mean", "max", "last"], "displayMode": "table", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+    {
+      "title": "Event Store Append Latency",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
+      "description": "Average event store append latency",
+      "targets": [{
+        "expr": "rate(prodinamik_event_store_append_duration_seconds_sum[5m]) / rate(prodinamik_event_store_append_duration_seconds_count[5m])",
+        "legendFormat": "Avg latency"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.2},
+              {"color": "red", "value": 0.5}
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+    {
+      "title": "WAL Write Latency",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 31},
+      "description": "WAL write latency histogram",
+      "targets": [{
+        "expr": "prodinamik_wal_write_duration_seconds",
+        "legendFormat": "WAL write"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+    {
+      "title": "Throughput",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 31},
+      "description": "Overall operations per second",
+      "targets": [{
+        "expr": "rate(prodinamik_operations_total[5m])",
+        "legendFormat": "Ops/sec"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+
+    {
+      "title": "Budget & Cost",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 39},
+      "collapsed": false
+    },
+    {
+      "title": "Budget Usage by Profile",
+      "type": "bargauge",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 40},
+      "description": "Budget usage ratio per profile",
+      "targets": [{
+        "expr": "prodinamik_budget_usage_ratio",
+        "legendFormat": "{{ profile }}"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1.2,
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.8},
+              {"color": "red", "value": 1.0}
+            ]
+          }
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      }
+    },
+    {
+      "title": "Cost Accumulated",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 40},
+      "description": "Total cost accumulated over time",
+      "targets": [{
+        "expr": "prodinamik_cost_total_usd",
+        "legendFormat": "Cost"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "usd",
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom"}
+      }
+    },
+    {
+      "title": "Cost by Category",
+      "type": "piechart",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 40},
+      "description": "Cost breakdown by category (LLM, compute, storage, network)",
+      "targets": [{
+        "expr": "prodinamik_cost_category",
+        "legendFormat": "{{ category }}"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "options": {
+        "displayLabels": ["name", "percent", "value"],
+        "legend": {"displayMode": "table", "placement": "right"}
+      }
+    },
+
+    {
+      "title": "Security",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 46},
+      "collapsed": false
+    },
+    {
+      "title": "Auth Failures Over Time",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 47},
+      "description": "Authentication failure rate",
+      "targets": [{
+        "expr": "rate(prodinamik_auth_failures_total[5m])",
+        "legendFormat": "Failures"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Rate Limits Hit",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 47},
+      "description": "Rate limit hits over time",
+      "targets": [{
+        "expr": "rate(prodinamik_rate_limit_hits_total[5m])",
+        "legendFormat": "Rate limited"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 2},
+              {"color": "red", "value": 10}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Active API Keys",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 47},
+      "description": "Number of active API keys",
+      "targets": [{
+        "expr": "prodinamik_active_keys",
+        "legendFormat": "Keys"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"fixed": "blue"}
+        }
+      }
+    },
+
+    {
+      "title": "Chaos Engineering",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 53},
+      "collapsed": false
+    },
+    {
+      "title": "Chaos Test Results",
+      "type": "state-timeline",
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 54},
+      "description": "Timeline of chaos engineering test results",
+      "targets": [{
+        "expr": "prodinamik_chaos_test_result",
+        "legendFormat": "{{ scenario }}"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "mappings": [
+            {"type": "value", "value": "0", "text": "FAIL", "color": "red"},
+            {"type": "value", "value": "1", "text": "PASS", "color": "green"}
+          ]
+        }
+      },
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom"}
+      }
+    },
+    {
+      "title": "Recent Alerts",
+      "type": "logs",
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 54},
+      "description": "Recent engine alerts",
+      "targets": [{
+        "expr": "{job=\"prodinamik-engine\", severity=~\"info|warning|critical\"}",
+        "legendFormat": ""
+      }],
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      },
+      "datasource": "Loki"
+    },
+
+    {
+      "title": "Raft Cluster",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 60},
+      "collapsed": false
+    },
+    {
+      "title": "Cluster Health",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 61},
+      "description": "Number of healthy nodes in Raft cluster",
+      "targets": [{
+        "expr": "prodinamik_cluster_healthy_nodes",
+        "legendFormat": "Healthy"
+      }]
+    },
+    {
+      "title": "Current Leader",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 61},
+      "description": "Current Raft leader node",
+      "targets": [{
+        "expr": "prodinamik_cluster_leader",
+        "legendFormat": "Leader"
+      }]
+    },
+    {
+      "title": "Cluster Size",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 61},
+      "description": "Total cluster node count",
+      "targets": [{
+        "expr": "prodinamik_cluster_size",
+        "legendFormat": "Nodes"
+      }]
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "datasource": "Prometheus",
+        "enable": true,
+        "expr": "ALERTS{alertname=~\"EngineDown|EngineDegraded|BudgetHardLimit\"}",
+        "iconColor": "red",
+        "title": "{{ alertname }}",
+        "text": "{{ description }}"
+      }
+    ]
+  }
+}

@@ -1,0 +1,133 @@
+site_name: Prodinamik Engine
+site_description: Product-Agnostic Pipeline Engine — Documentation
+site_author: Yunus Güngör
+site_url: https://yunusgungor.github.io/prodinamik-engine
+repo_url: https://github.com/yunusgungor/prodinamik-engine
+repo_name: yunusgungor/prodinamik-engine
+edit_uri: edit/main/docs/
+
+copyright: Copyright &copy; 2026 Yunus Güngör
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/yunusgungor
+    - icon: fontawesome/solid/envelope
+      link: mailto:mail@yunusgungor.com
+  generator: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quickstart: getting-started/quickstart.md
+    - Configuration: getting-started/configuration.md
+    - Profiles: getting-started/profiles.md
+  - User Guide:
+    - CLI Commands: guide/cli.md
+    - HTTP API: guide/http-api.md
+    - State Machine: guide/state-machine.md
+    - Run Management: guide/runs.md
+    - Metrics & Monitoring: guide/monitoring.md
+    - Authentication: guide/auth.md
+    - Chaos Engineering: guide/chaos.md
+  - Development:
+    - Architecture: dev/architecture.md
+    - Module Reference: dev/modules.md
+    - Testing: dev/testing.md
+    - Docker & CI/CD: dev/docker-ci-cd.md
+    - Contributing: dev/contributing.md
+  - API Reference:
+    - Engine Core: api/engine.md
+    - CLI: api/cli.md
+    - State Machine: api/state_machine.md
+    - State Machine Types: api/sm_types.md
+    - State Machine Parser: api/sm_parser.md
+    - Profile: api/profile.md
+    - Run Manager: api/run_manager.md
+    - Validators: api/validators.md
+    - Event Store: api/event_store.md
+    - Degradation: api/degradation.md
+    - Cost Tracking: api/cost.md
+    - Budget: api/budget.md
+    - Safety: api/safety.md
+    - Migration: api/migration.md
+    - Async Runtime: api/runtime.md
+    - Hooks: api/hooks.md
+    - Shell: api/shell.md
+    - Scaffold: api/scaffold.md
+    - Benchmarks: api/bench.md
+    - Registry: api/registry.md
+    - Metrics: api/metrics.md
+    - Dashboard: api/dashboard.md
+    - Audit Log: api/audit.md
+    - Auth: api/auth.md
+    - Rate Limiter: api/ratelimit.md
+    - HTTP Server: api/server.md
+    - Raft Types: api/raft_types.md
+    - Raft Consensus: api/raft_consensus.md
+    - Raft Cluster: api/raft_cluster.md
+    - Chaos Engine: api/chaos.md
+    - Alert Manager: api/alert.md
+    - Config: api/config.md
+    - Logging: api/log.md
+  - About:
+    - License: license.md
+    - Changelog: changelog.md

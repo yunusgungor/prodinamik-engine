@@ -1,0 +1,472 @@
+openapi: "3.0.3"
+info:
+  title: Prodinamik Engine HTTP API
+  description: |
+    Product-Agnostic Pipeline Engine — RESTful API for run management,
+    state transitions, metrics, health monitoring, and audit logging.
+
+    Authentication: API key via `Authorization: Bearer pdmk_...` or `X-API-Key: pdmk_...`
+  version: "1.1.0"
+  contact:
+    name: Yunus Güngör
+    email: mail@yunusgungor.com
+    url: https://github.com/yunusgungor/prodinamik-engine
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: http://{host}:{port}
+    description: Custom server
+    variables:
+      host:
+        default: localhost
+      port:
+        default: "8080"
+
+tags:
+  - name: Health
+    description: Health check and server information endpoints
+  - name: Metrics
+    description: Prometheus metrics export
+  - name: Runs
+    description: Run lifecycle management
+  - name: Profiles
+    description: Profile discovery and information
+  - name: Audit
+    description: Event audit log queries
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key with `pdmk_` prefix (e.g., `pdmk_a1b2c3d4...`)
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: pdmk_
+      description: Bearer token with `pdmk_` prefix
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error code or short description
+        detail:
+          type: string
+          description: Detailed error message
+        path:
+          type: string
+          description: Request path (404 errors)
+      required: [error]
+
+    HealthResponse:
+      type: object
+      properties:
+        health_score:
+          type: number
+          description: Engine health score (0-100)
+          example: 95
+        degradation_level:
+          type: string
+          enum: [FULL, DEGRADED, SURVIVAL]
+          description: Current degradation level
+        active_runs:
+          type: integer
+          description: Number of currently active runs
+        total_runs:
+          type: integer
+          description: Total runs created
+        server_uptime:
+          type: integer
+          description: Server uptime in seconds
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp
+        status:
+          type: string
+          enum: [ok, degraded]
+          description: Overall server status
+
+    Run:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: Unique run identifier
+          example: flux-release-001
+        profile:
+          type: string
+          description: Profile name
+          example: software
+        current_state:
+          type: string
+          description: Current state machine state
+          example: prototyping
+        title:
+          type: string
+          description: Human-readable run title
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, archived]
+        elapsed_seconds:
+          type: number
+          description: Seconds since run creation (detail endpoint only)
+
+    RunCreate:
+      type: object
+      required: [profile, title]
+      properties:
+        profile:
+          type: string
+          description: Profile to use for this run
+          example: software
+        title:
+          type: string
+          description: Run title
+          example: Implement CRDT merge
+        slug:
+          type: string
+          description: Optional custom slug (auto-generated if omitted)
+          example: my-custom-slug
+
+    RunTransition:
+      type: object
+      required: [state]
+      properties:
+        state:
+          type: string
+          description: Target state name
+          example: review
+
+    RunListResponse:
+      type: object
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Run"
+        count:
+          type: integer
+          description: Number of runs returned
+
+    Profile:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Profile name
+          example: software
+        version:
+          type: string
+          description: Profile version
+        description:
+          type: string
+          description: Profile description
+        states:
+          type: array
+          items:
+            type: string
+          description: Available state names
+        transitions:
+          type: array
+          items:
+            type: string
+          description: Available transitions (from → to)
+
+    AuditEntry:
+      type: object
+      properties:
+        sequence:
+          type: integer
+        run_slug:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        event_type:
+          type: string
+        data:
+          type: object
+
+    AuditQueryResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        count:
+          type: integer
+
+paths:
+  # ── Health ──
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Health check (unauthenticated)
+      description: Returns engine health status. Does not require authentication.
+      operationId: healthz
+      responses:
+        "200":
+          description: Engine health information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Engine unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check (alias)
+      description: Alias for /healthz
+      operationId: health
+      responses:
+        "200":
+          $ref: "#/paths/~1healthz/get/responses/200"
+
+  # ── Metrics ──
+  /metrics:
+    get:
+      tags: [Metrics]
+      summary: Prometheus metrics (unauthenticated)
+      description: |
+        Returns engine metrics in Prometheus text format.
+        Content-Type: text/plain; version=0.0.4
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP prodinamik_engine_info Prodinamik Engine metrics
+                  # TYPE prodinamik_engine_info gauge
+                  prodinamik_engine_info{version="1.1.0",uptime_seconds="3600"} 1
+
+  # ── API v1: Health ──
+  /api/v1/health:
+    get:
+      tags: [Health]
+      summary: Detailed health (authenticated)
+      description: Authenticated endpoint returning detailed engine health
+      operationId: apiHealth
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Detailed health information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+
+  # ── API v1: Runs ──
+  /api/v1/runs:
+    get:
+      tags: [Runs]
+      summary: List all runs
+      description: Returns a list of all runs with their current state
+      operationId: listRuns
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunListResponse"
+        "401":
+          $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+
+    post:
+      tags: [Runs]
+      summary: Create a new run
+      description: Creates a new pipeline run with the specified profile
+      operationId: createRun
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunCreate"
+      responses:
+        "201":
+          description: Run created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "400":
+          description: Invalid request (e.g., unknown profile)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+
+  /api/v1/runs/{slug}:
+    get:
+      tags: [Runs]
+      summary: Get run details
+      description: Returns detailed information about a specific run
+      operationId: getRun
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Run slug identifier
+      responses:
+        "200":
+          description: Run details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      tags: [Runs]
+      summary: Transition run state
+      description: Transition a run to a new state
+      operationId: transitionRun
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunTransition"
+      responses:
+        "200":
+          description: State transition successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "400":
+          description: Invalid transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── API v1: Profiles ──
+  /api/v1/profiles:
+    get:
+      tags: [Profiles]
+      summary: List all profiles
+      description: Returns all registered profiles with their state machines
+      operationId: listProfiles
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Profile list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profiles:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Profile"
+                  count:
+                    type: integer
+
+  # ── API v1: Audit ──
+  /api/v1/audit:
+    get:
+      tags: [Audit]
+      summary: Query audit log
+      description: Query the append-only audit log with optional filters
+      operationId: queryAudit
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Return entries after this timestamp (ISO 8601)
+        - name: type
+          in: query
+          schema:
+            type: string
+          description: Filter by event type (e.g., state_transition, run_created)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+          description: Maximum number of entries to return
+      responses:
+        "200":
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditQueryResponse"

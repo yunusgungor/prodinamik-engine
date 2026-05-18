@@ -1,0 +1,196 @@
+# ──────────────────────────────────────────────────
+# Prodinamik Engine — Prometheus Alert Rules
+# ──────────────────────────────────────────────────
+# Usage: Include in prometheus.yml:
+#   rule_files:
+#     - "monitoring/alerts.yml"
+# ──────────────────────────────────────────────────
+
+groups:
+  - name: prodinamik-engine
+    interval: 30s
+    rules:
+
+      # ── Engine Health ──
+
+      - alert: EngineDown
+        expr: up{job="prodinamik-engine"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prodinamik Engine is down (instance {{ $labels.instance }})"
+          description: |
+            Engine {{ $labels.instance }} has been unreachable for over 1 minute.
+            Last seen: {{ $value | humanizeTimestamp }}
+
+      - alert: EngineRestarted
+        expr: time() - prodinamik_engine_info{version="1.1.0"} < 120
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Engine recently restarted (uptime < 2 min)"
+          description: |
+            Engine uptime is {{ $value }} seconds. Recent restart detected.
+
+      # ── Degradation ──
+
+      - alert: EngineDegraded
+        expr: prodinamik_engine_health{status="degraded"} > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Engine running in degraded mode"
+          description: |
+            Engine is operating in DEGRADED mode for over 2 minutes.
+            T2/T3 validators and remote adapters are disabled.
+
+      - alert: EngineSurvivalMode
+        expr: prodinamik_engine_health{status="survival"} > 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "CRITICAL: Engine in SURVIVAL mode"
+          description: |
+            Engine is in SURVIVAL mode. Only state tracking + CRUD available.
+            All validators and adapters are disabled.
+            Immediate manual intervention required.
+
+      # ── Run Activity ──
+
+      - alert: RunCreationSpike
+        expr: rate(prodinamik_runs_created_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High run creation rate ({{ $value | humanize }} runs/sec)"
+          description: |
+            Sustained high run creation rate detected:
+            {{ $value | humanize }} runs/sec over 5 minutes.
+            Current active runs: {{ with query "prodinamik_runs_active" }}{{ . | first | value }}{{ end }}
+
+      - alert: TooManyActiveRuns
+        expr: prodinamik_runs_active > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Over 100 active runs ({{ $value }})"
+          description: |
+            {{ $value }} runs currently active.
+            Consider archiving completed runs or scaling up.
+
+      - alert: RunStuckInState
+        expr: time() - prodinamik_run_state_duration_seconds > 86400
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "Run stuck in state for over 24 hours"
+          description: |
+            A run has been in the same state for > 24 hours.
+            Run: {{ $labels.run }}
+            State: {{ $labels.state }}
+            Duration: {{ $value | humanizeDuration }}
+
+      # ── Performance ──
+
+      - alert: HighTransitionLatency
+        expr: prodinamik_transition_latency_ms_p99 > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High state transition latency (P99 > 1s)"
+          description: |
+            State transition latency is critically high:
+            P99: {{ $value }}ms
+            Threshold: 1000ms
+
+      - alert: EventStoreSlow
+        expr: rate(prodinamik_event_store_append_duration_seconds_sum[5m]) / rate(prodinamik_event_store_append_duration_seconds_count[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Event store append latency > 500ms"
+          description: |
+            Average event store append latency is {{ $value | humanizeDuration }}.
+
+      # ── Chaos Engineering ──
+
+      - alert: ChaosTestFailed
+        expr: prodinamik_chaos_test_result{status="failed"} > 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Chaos engineering test failed"
+          description: |
+            Scenario: {{ $labels.scenario }}
+            Result: FAILED — {{ $labels.reason }}
+            Check chaos report: `prodinamik chaos report --scenario {{ $labels.scenario }}`
+
+      - alert: SelfHealingFailed
+        expr: prodinamik_chaos_self_healed{status="failed"} > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Self-healing mechanism failed"
+          description: |
+            Engine did not recover from injected fault.
+            Manual investigation required.
+
+      # ── Budget & Cost ──
+
+      - alert: BudgetSoftLimit
+        expr: prodinamik_budget_usage_ratio > 0.8
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "Budget usage > 80%"
+          description: |
+            Budget usage: {{ $value | humanizePercentage }}
+            Profile: {{ $labels.profile }}
+
+      - alert: BudgetHardLimit
+        expr: prodinamik_budget_usage_ratio > 1.0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Budget exceeded! Usage > 100%"
+          description: |
+            Budget exceeded: {{ $value | humanizePercentage }}
+            Profile: {{ $labels.profile }}
+            Engine will SLOW or STOP new operations.
+
+      # ── Security ──
+
+      - alert: AuthFailureRate
+        expr: rate(prodinamik_auth_failures_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High authentication failure rate"
+          description: |
+            {{ $value | humanize }} auth failures/sec over 5 minutes.
+            Possible brute-force attack or misconfigured API keys.
+
+      - alert: RateLimitHit
+        expr: rate(prodinamik_rate_limit_hits_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: info
+        annotations:
+          summary: "High rate limit hit rate ({{ $value | humanize }}/sec)"
+          description: |
+            {{ $value | humanize }} rate limit hits per second.
+            Check client configuration.

@@ -38,6 +38,8 @@ from .server import ProdinamikServer
 from .raft import HybridConsensusNode, RaftCluster
 from .chaos import ChaosEngine, ScenarioResult
 
+from .alert import AlertManager, Alert
+
 __all__ = [
     "ProdinamikEngine",
     "ProdinamikConfig",
@@ -92,4 +94,7 @@ __all__ = [
     # Phase 6: Chaos Engineering
     "ChaosEngine",
     "ScenarioResult",
+    # Phase 7: Monitoring & Alerting
+    "AlertManager",
+    "Alert",
 ]
