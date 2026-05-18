@@ -1738,5 +1738,151 @@ def providers():
         click.echo(f"❌ LLM registry not available: {e}")
 
 
+# ──────────────────────────────────────────────
+# Coordinator CLI
+# ──────────────────────────────────────────────
+
+@cli.group()
+def coordinator():
+    """AI Grid Coordinator management"""
+    pass
+
+
+@coordinator.command("start")
+@click.option("--node-id", "-n", default="", help="Node ID for this coordinator")
+def coordinator_start(node_id):
+    """Start the Coordinator Node"""
+    import asyncio
+    from .agent_runtime import CoordinatorNode, CoordinatorConfig
+    from .log import get_logger
+
+    log = get_logger()
+
+    config = CoordinatorConfig(
+        node_id=node_id or f"coord-{os.uname().nodename}",
+    )
+    coord = CoordinatorNode(config)
+
+    async def _run():
+        await coord.start()
+        click.echo(f"✅ Coordinator started: {config.node_id}")
+        click.echo(f"   Status: {coord.status.value}")
+        click.echo(f"   Task queue: WAL-backed")
+        click.echo(f"   Human loop: {'enabled' if config.enable_human_loop else 'disabled'}")
+
+        try:
+            while coord.is_active:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            await coord.stop()
+            click.echo("\n✅ Coordinator stopped")
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+
+
+@coordinator.command("status")
+def coordinator_status():
+    """Show Coordinator status"""
+    from .agent_runtime import CoordinatorNode
+
+    click.echo("\n📊 Coordinator Status")
+    click.echo("─" * 50)
+    click.echo("Status: not running (start with: prodinamik coordinator start)")
+
+
+@coordinator.command("submit")
+@click.argument("goal", nargs=-1, required=True)
+@click.option("--priority", "-p", default=2, type=int, help="Priority (0=critical, 1=high, 2=normal, 3=low)")
+@click.option("--affinity", "-a", default="", help="Node capability affinity")
+@click.option("--max-steps", "-s", default=20, type=int, help="Max execution steps")
+def coordinator_submit(goal, priority, affinity, max_steps):
+    """Submit a goal to the coordinator task queue"""
+    import asyncio
+    from .agent_runtime import CoordinatorNode, CoordinatorConfig
+
+    goal_text = " ".join(goal)
+    config = CoordinatorConfig()
+    coord = CoordinatorNode(config)
+
+    async def _submit():
+        await coord.start()
+        task_id = await coord.submit_task(
+            goal=goal_text,
+            priority=priority,
+            affinity=affinity,
+            max_steps=max_steps,
+        )
+        click.echo(f"✅ Task submitted: {task_id}")
+        click.echo(f"   Goal: {goal_text[:80]}...")
+        click.echo(f"   Priority: {priority}")
+        click.echo(f"   Affinity: '{affinity}'")
+        await coord.stop()
+
+    asyncio.run(_submit())
+
+
+@coordinator.command("queue")
+def coordinator_queue():
+    """Show task queue status"""
+    import asyncio
+    from .agent_runtime import CoordinatorNode, CoordinatorConfig
+
+    config = CoordinatorConfig()
+    coord = CoordinatorNode(config)
+
+    async def _show():
+        await coord.start()
+        stats = coord.stats
+        click.echo("\n📋 Task Queue")
+        click.echo("─" * 50)
+        click.echo(f"Queue depth:  {stats['queue_depth']}")
+        click.echo(f"Active:       {stats['active_tasks']}")
+        click.echo(f"Total:        {stats['total_tasks']}")
+        click.echo(f"Assigned:     {stats['tasks_assigned']}")
+        click.echo(f"Completed:    {stats['tasks_completed']}")
+        click.echo(f"Failed:       {stats['tasks_failed']}")
+        click.echo(f"Nodes alive:  {stats['nodes_alive']}")
+        click.echo(f"Total nodes:  {stats['total_nodes']}")
+        await coord.stop()
+
+    asyncio.run(_show())
+
+
+@coordinator.command("nodes")
+def coordinator_nodes():
+    """List registered worker nodes"""
+    import asyncio
+    from .agent_runtime import CoordinatorNode, CoordinatorConfig
+
+    config = CoordinatorConfig()
+    coord = CoordinatorNode(config)
+
+    async def _show():
+        await coord.start()
+        nodes = coord.agent_registry.list_nodes()
+        alive = coord.agent_registry.get_alive_count()
+
+        click.echo(f"\n🔌 Worker Nodes ({alive}/{len(nodes)} alive)")
+        click.echo("─" * 60)
+
+        if not nodes:
+            click.echo("No nodes registered. Start workers with: prodinamik agent supervisor start")
+        else:
+            for n in nodes:
+                alive_mark = "✅" if n.is_alive() else "❌"
+                healthy_mark = "🟢" if n.is_healthy else "🔴"
+                click.echo(f"{alive_mark} {healthy_mark} {n.node_id} ({n.hostname})")
+                click.echo(f"   Workers: {n.active_workers}/{n.max_workers}")
+                if n.capabilities:
+                    click.echo(f"   Caps: {', '.join(n.capabilities)}")
+
+        await coord.stop()
+
+    asyncio.run(_show())
+
+
 if __name__ == "__main__":
     cli()

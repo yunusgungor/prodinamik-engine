@@ -1,8 +1,7 @@
 """Prodinamik Engine — Agent Runtime Subpackage
 
-Warm Agent pattern: lightweight supervisor per node + worker pool.
-Context management with sliding window and summarization.
-Tool Executor converts Plugin Registry tools into callable agent functions.
+Phase 1: Runtime Layer — Warm Agent, Loop Engine, Tools, Context, Memory
+Phase 2: Orchestration Layer — Coordinator, Task Queue, Scheduler, Registry
 """
 
 from .supervisor import (
@@ -35,8 +34,36 @@ from .memory import (
     MemoryEntry,
     MemoryStore,
 )
+from .task_queue import (
+    TaskQueue,
+    Task,
+    TaskStatus,
+    PrioritizedTask,
+)
+from .agent_registry import (
+    AgentRegistry,
+    NodeInfo,
+    CapabilityQuery,
+)
+from .coordinator import (
+    CoordinatorNode,
+    CoordinatorConfig,
+    CoordinatorStatus,
+)
+from .scheduler import Scheduler
+from .human_loop import (
+    HumanLoopManager,
+    EscalatedItem,
+    EscalationReason,
+    ReviewStatus,
+)
+from .global_memory import (
+    GlobalMemory,
+    CRDTEntry,
+)
 
 __all__ = [
+    # Phase 1: Runtime
     "AgentSupervisor",
     "SupervisorConfig",
     "NodeIdentity",
@@ -57,4 +84,22 @@ __all__ = [
     "LocalMemory",
     "MemoryEntry",
     "MemoryStore",
+    # Phase 2: Orchestration
+    "TaskQueue",
+    "Task",
+    "TaskStatus",
+    "PrioritizedTask",
+    "AgentRegistry",
+    "NodeInfo",
+    "CapabilityQuery",
+    "CoordinatorNode",
+    "CoordinatorConfig",
+    "CoordinatorStatus",
+    "Scheduler",
+    "HumanLoopManager",
+    "EscalatedItem",
+    "EscalationReason",
+    "ReviewStatus",
+    "GlobalMemory",
+    "CRDTEntry",
 ]
