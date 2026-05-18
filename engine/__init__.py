@@ -7,7 +7,7 @@ cost tracking, budget enforcement, graceful degradation,
 and distributed consensus for multi-profile pipelines.
 """
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 __author__ = "Yunus Güngör"
 __license__ = "MIT"
 
@@ -58,6 +58,26 @@ from .plugin import (
 from .plugin_registry import PluginRegistry, PLUGIN_DIRS
 from .hermes_bridge import HermesPluginBridge
 from .plugin_repo import PluginRepository, RepositoryPlugin, InstallRecord
+
+from .aidetect import (
+    AIDriftDetector,
+    DriftEvent,
+    DriftPattern,
+    DriftType,
+    DriftSeverity,
+    EmergenceCandidate,
+    TrendDirection,
+)
+from .predict import (
+    AIDegradationForecaster,
+    MetricPoint,
+    ForecastResult,
+    DegradationPrediction,
+    DegradationLevel,
+)
+from .skillforge import AutoSkillForge, SkillDraft
+from .recommend import AIRecommender, Recommendation
+from .autofix import AutoRemediator, FailureSignature, FailureClass, RemediationPlan
 
 __all__ = [
     "ProdinamikEngine",
@@ -140,4 +160,25 @@ __all__ = [
     "PluginRepository",
     "RepositoryPlugin",
     "InstallRecord",
+    # Phase 10: AI-Native Features
+    "AIDriftDetector",
+    "DriftEvent",
+    "DriftPattern",
+    "DriftType",
+    "DriftSeverity",
+    "EmergenceCandidate",
+    "TrendDirection",
+    "AIDegradationForecaster",
+    "MetricPoint",
+    "ForecastResult",
+    "DegradationPrediction",
+    "DegradationLevel",
+    "AutoSkillForge",
+    "SkillDraft",
+    "AIRecommender",
+    "Recommendation",
+    "AutoRemediator",
+    "FailureSignature",
+    "FailureClass",
+    "RemediationPlan",
 ]

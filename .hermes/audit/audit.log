@@ -145,3 +145,15 @@
 {"ts": "2026-05-18T10:45:18.877260+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
 {"ts": "2026-05-18T10:45:20.877587+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
 {"ts": "2026-05-18T10:45:20.877764+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
+{"ts": "2026-05-18T10:55:32.306622+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T10:55:34.307032+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T10:55:34.307239+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
+{"ts": "2026-05-18T10:55:44.428983+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T10:55:46.429682+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T10:55:46.429901+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
+{"ts": "2026-05-18T10:56:53.217788+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T10:56:55.218132+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T10:56:55.218297+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
+{"ts": "2026-05-18T10:57:05.342896+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T10:57:07.343303+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T10:57:07.343744+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}

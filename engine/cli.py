@@ -1,4 +1,4 @@
-"""Prodinamik Engine v1.2 — CLI Entry Point (42 commands)
+"""Prodinamik Engine v1.3 — CLI Entry Point (46 commands)
 
 Usage:
     prodinamik run <profile> <title>        # Start new run
@@ -939,6 +939,178 @@ def status():
     click.echo(f"   Channels: {', '.join(summary['channels']) or 'none'}")
     click.echo(f"   Total alerts: {summary['total_alerts']}")
     click.echo(f"   Counts: {summary['counts']}")
+
+
+# ──────────────────────────────────────────────
+# Phase 10: AI-Native Features Commands
+# ──────────────────────────────────────────────
+
+
+@cli.group()
+def ai():
+    """AI-Native features — detect, predict, recommend, status"""
+
+
+@ai.command("detect")
+@click.option("--drift-type", default=None, help="Filter by drift type")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def ai_detect(drift_type, as_json):
+    """Run AI drift detection and trend analysis"""
+    from .aidetect import AIDriftDetector
+
+    detector = AIDriftDetector()
+    report = detector.generate_report()
+
+    if as_json:
+        import json as j
+        click.echo(j.dumps(report, indent=2, ensure_ascii=False))
+        return
+
+    click.echo("🔍 AI Drift Detection Report")
+    click.echo(f"   Health Score:     {report['health_score']}/100")
+    click.echo(f"   Total Events:     {report['total_events']}")
+    click.echo(f"   Degrading Trends: {report['degrading_trends']}")
+    click.echo(f"   Stable Trends:    {report['stable_trends']}")
+
+    if report["emergence_candidates"]:
+        click.echo(f"\n🧬 Emergence Candidates:")
+        for c in report["emergence_candidates"]:
+            click.echo(f"   💡 {c['suggested_skill']} "
+                       f"(confidence={c['confidence']})")
+            click.echo(f"      {c['description'][:80]}...")
+
+    if report.get("anomalies", {}).get("anomalous_runs"):
+        click.echo(f"\n⚠️  Anomalous Runs:")
+        for a in report["anomalies"]["anomalous_runs"]:
+            click.echo(f"   {a['run_id']}: z={a['z_score']} "
+                       f"(drifts={a['drift_count']})")
+
+
+@ai.command("predict")
+@click.option("--metric", "-m", default=None, help="Specific metric to forecast")
+@click.option("--horizon", "-h", default=60, type=int, help="Forecast horizon in minutes")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def ai_predict(metric, horizon, as_json):
+    """Predict future degradation from metric trends"""
+    from .predict import AIDegradationForecaster
+
+    forecaster = AIDegradationForecaster()
+
+    if metric:
+        prediction = forecaster.predict(metric, horizon)
+        if prediction:
+            if as_json:
+                import json as j
+                click.echo(j.dumps(prediction.to_dict(), indent=2, ensure_ascii=False))
+            else:
+                click.echo(f"📊 Degradation Prediction: {metric}")
+                click.echo(f"   Current Level:     {prediction.current_level.value}")
+                click.echo(f"   Predicted Level:   {prediction.predicted_level.value}")
+                if prediction.time_to_degradation:
+                    click.echo(f"   Time to Degradation: {prediction.time_to_degradation:.1f}m")
+                click.echo(f"   Confidence:        {prediction.confidence:.0%}")
+                click.echo(f"   Recommendation:    {prediction.recommendation}")
+        else:
+            click.echo("⚠️  Insufficient data for prediction. Record metrics first.")
+    else:
+        report = forecaster.generate_report(horizon)
+        if as_json:
+            import json as j
+            click.echo(j.dumps(report, indent=2, ensure_ascii=False))
+        else:
+            click.echo("📊 Degradation Forecast Report")
+            health = report["degradation_assessment"]
+            click.echo(f"   Health Score: {health['health_score']}/100")
+            click.echo(f"   🔴 Critical: {health['critical']}")
+            click.echo(f"   🟡 Warning:  {health['warning']}")
+            click.echo(f"   🟢 Normal:   {health['normal']}")
+            click.echo(f"   Metrics Tracked: {report['metrics_tracked']}")
+
+
+@ai.command("recommend")
+@click.argument("current_state")
+@click.option("--run-id", default="current", help="Run identifier")
+@click.option("--profile", default="default", help="Profile name")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def ai_recommend(current_state, run_id, profile, as_json):
+    """Get recommended next state transitions"""
+    from .recommend import AIRecommender
+
+    recommender = AIRecommender()
+    rec = recommender.get_recommendation(run_id, current_state, profile)
+
+    if not rec:
+        click.echo("⚠️  No recommendations available for this state.")
+        return
+
+    if as_json:
+        import json as j
+        click.echo(j.dumps(rec.to_dict(), indent=2, ensure_ascii=False))
+        return
+
+    click.echo(f"🎯 Next State Recommendations")
+    click.echo(f"   Current: {current_state}")
+    click.echo(f"   Best Next: {rec.best_next_state}")
+    click.echo(f"   Confidence: {rec.confidence:.0%}")
+    click.echo(f"   Reasoning: {rec.reasoning}")
+    if rec.estimated_duration:
+        click.echo(f"   Est. Duration: {rec.estimated_duration:.0f}s")
+
+    if rec.warnings:
+        click.echo(f"\n⚠️  Warnings:")
+        for w in rec.warnings:
+            click.echo(f"   • {w}")
+
+    if len(rec.recommended_states) > 1:
+        click.echo(f"\n📋 All Recommendations:")
+        for state, score in rec.recommended_states:
+            click.echo(f"   {state}: {score:.0%}")
+
+
+@ai.command("status")
+def ai_status():
+    """Show AI-Native features status and metrics"""
+    from .aidetect import AIDriftDetector
+    from .predict import AIDegradationForecaster
+    from .recommend import AIRecommender
+    from .autofix import AutoRemediator
+    from .skillforge import AutoSkillForge
+
+    click.echo("🤖 AI-Native Features Status")
+    click.echo(f"{'─'*50}")
+
+    detector = AIDriftDetector()
+    dm = detector.metrics
+    click.echo(f"\n🔍 Drift Detection")
+    click.echo(f"   Events: {dm['total_events']}")
+    click.echo(f"   Types:  {dm['unique_types']}")
+
+    forecaster = AIDegradationForecaster()
+    fm = forecaster.metrics
+    click.echo(f"\n📊 Degradation Forecasting")
+    click.echo(f"   Metrics: {fm['tracked_metrics']}")
+    click.echo(f"   Points:  {fm['total_points']}")
+
+    recommender = AIRecommender()
+    rm = recommender.metrics
+    click.echo(f"\n🎯 Run Recommender")
+    click.echo(f"   Transitions: {rm['total_transitions']}")
+    click.echo(f"   Bottlenecks: {rm['bottlenecks']}")
+
+    remediator = AutoRemediator()
+    rs = remediator.get_stats()
+    click.echo(f"\n🛠️  Auto-Remediation")
+    click.echo(f"   Incidents:   {rs['total_incidents']}")
+    click.echo(f"   Auto-fixed:  {rs['auto_remediated']}")
+    click.echo(f"   Success:     {rs['success_rate']:.0%}")
+
+    forge = AutoSkillForge(detector)
+    ss = forge.stats_summary()
+    click.echo(f"\n🧬 Skill Emergence")
+    click.echo(f"   Generated:  {ss['total_generated']}")
+    click.echo(f"   Promotable: {ss['promotable']}")
+    click.echo(f"{'─'*50}")
+    click.echo("   ⚡ Usage: prodinamik ai <detect|predict|recommend>")
 
 
 # ──────────────────────────────────────────────

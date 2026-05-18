@@ -1027,10 +1027,10 @@ __version__ = "2.0.0"
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = PluginRepository(storage_dir=tmpdir)
 
-            # >=1.0.0 should be compatible with 1.2.0
+            # >=1.0.0 should be compatible with 1.3.0
             assert repo._check_engine_compatibility(">=1.0.0")
-            # ==1.2.0 should be compatible
-            assert repo._check_engine_compatibility("==1.2.0")
+            # ==1.3.0 should be compatible
+            assert repo._check_engine_compatibility("==1.3.0")
             # ==2.0.0 should NOT be compatible
             assert not repo._check_engine_compatibility("==2.0.0")
 
