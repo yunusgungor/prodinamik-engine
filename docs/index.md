@@ -3,7 +3,7 @@
 > **Product-Agnostic Pipeline Engine** — Formal state machine, 3-tier validator pipeline, event sourcing, Raft consensus, plugin ecosystem, and AI-native drift detection/prediction/remediation.
 
 [![Tests](https://github.com/yunusgungor/prodinamik-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/yunusgungor/prodinamik-engine/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](license.md)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Version](https://img.shields.io/badge/version-1.3.0-blueviolet)](https://github.com/yunusgungor/prodinamik-engine)
 [![Tests](https://img.shields.io/badge/tests-333%20passed-brightgreen)]()
