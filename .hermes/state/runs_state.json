@@ -5,5 +5,11 @@
     "status": "active",
     "updated_at": "2026-05-18T10:49:55.074871",
     "version": 1
+  },
+  "timeout-test": {
+    "state": "captured",
+    "profile": "content",
+    "status": "active",
+    "updated_at": "2026-05-18T10:55:12.784668"
   }
 }

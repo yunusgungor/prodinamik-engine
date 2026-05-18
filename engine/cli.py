@@ -8,6 +8,11 @@ Usage:
     prodinamik config                        # Show config
     prodinamik validate <profile_path>       # Validate profile
     prodinamik daemon                        # Start daemon (async runtime)
+    prodinamik shell                         # Interactive REPL
+    prodinamik new profile <name>            # Generate a new profile
+    prodinamik new project <name>            # Generate a new project
+    prodinamik benchmark [runs]              # Run performance benchmarks
+    prodinamik completion bash|zsh           # Generate shell completion script
     prodinamik version                       # Show version
 """
 
@@ -221,7 +226,196 @@ def daemon():
 @cli.command()
 def version():
     """Show version"""
-    click.echo("Prodinamik Engine v1.0.0")
+    click.echo("Prodinamik Engine v1.1.0")
+
+
+# ──────────────────────────────────────────────
+# Phase 3: Developer Experience Commands
+# ──────────────────────────────────────────────
+
+
+@cli.command()
+@click.option("--no-color", is_flag=True, help="Disable ANSI colors")
+def shell(no_color: bool):
+    """Start interactive REPL shell"""
+    from .shell import run_shell, Color
+    if no_color:
+        Color.disable()
+    engine = get_engine()
+    click.echo("Starting interactive shell...")
+    try:
+        run_shell(engine=engine)
+    except SystemExit:
+        pass
+
+
+@cli.group()
+def new():
+    """Scaffold new profiles and projects"""
+
+
+@new.command()
+@click.argument("name")
+@click.option("--output", "-o", type=click.Path(), default="profiles",
+              help="Output directory (default: profiles/)")
+def profile(name: str, output: str):
+    """Generate a new profile module"""
+    from .scaffold import generate_profile
+
+    output_path = Path(output)
+    try:
+        filepath = generate_profile(name, output_path)
+        click.echo(f"✅ Profile generated: {filepath}")
+        click.echo(f"   Register by importing {name}.{name.title()}Profile")
+    except FileExistsError as e:
+        click.echo(f"❌ {e}", err=True)
+        sys.exit(1)
+
+
+@new.command()
+@click.argument("name")
+@click.option("--output", "-o", type=click.Path(), default=".",
+              help="Parent directory (default: current dir)")
+def project(name: str, output: str):
+    """Generate a new project scaffold"""
+    from .scaffold import generate_project
+
+    output_path = Path(output)
+    try:
+        project_dir = generate_project(name, output_path)
+        click.echo(f"✅ Project generated: {project_dir}")
+        click.echo(f"   cd {project_dir}")
+        click.echo(f"   pip install -e .")
+        click.echo(f"   prodinamik run {name} \"first task\"")
+    except FileExistsError as e:
+        click.echo(f"❌ {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("runs", default=5, type=int)
+def benchmark(runs: int):
+    """Run performance benchmarks"""
+    from .bench import run_benchmark
+    engine = get_engine()
+    click.echo(f"🚀 Running benchmarks ({runs} iterations each)...")
+    try:
+        results = run_benchmark(engine=engine, runs=runs)
+        click.echo("\n📊 Summary:")
+        for name, metrics in results.items():
+            click.echo(f"   {name}: avg={metrics['avg']}ms  p95={metrics['p95']}ms  (n={metrics['samples']})")
+    except Exception as e:
+        click.echo(f"❌ Benchmark failed: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("shell_type", type=click.Choice(["bash", "zsh"]))
+def completion(shell_type: str):
+    """Generate shell completion script"""
+    if shell_type == "bash":
+        click.echo(_BASH_COMPLETION)
+    else:
+        click.echo(_ZSH_COMPLETION)
+
+
+_BASH_COMPLETION = """# Prodinamik Engine Bash Completion
+# Source with: source <(prodinamik completion bash)
+
+_prodinamik_completion()
+{
+    local cur prev words cword
+    _init_completion || return
+
+    # Commands
+    local commands="run list transition debug config validate daemon shell new benchmark completion version help"
+
+    # First word: command
+    if [[ $cword -eq 1 ]]; then
+        COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+        return
+    fi
+
+    # Subcommands
+    case "${words[1]}" in
+        run)
+            if [[ $cword -eq 2 ]]; then
+                COMPREPLY=($(compgen -W "content software research design" -- "$cur"))
+            fi
+            ;;
+        transition|debug)
+            if [[ $cword -eq 2 ]]; then
+                # List runs from engine
+                local runs=$(prodinamik list 2>/dev/null | grep -oP "(?<=\`)[^`]+(?=\`)" | head -20)
+                COMPREPLY=($(compgen -W "$runs" -- "$cur"))
+            fi
+            ;;
+        new)
+            if [[ $cword -eq 2 ]]; then
+                COMPREPLY=($(compgen -W "profile project" -- "$cur"))
+            fi
+            ;;
+        completion)
+            if [[ $cword -eq 2 ]]; then
+                COMPREPLY=($(compgen -W "bash zsh" -- "$cur"))
+            fi
+            ;;
+    esac
+}
+
+complete -F _prodinamik_completion prodinamik
+"""
+
+_ZSH_COMPLETION = """#compdef prodinamik
+# Prodinamik Engine Zsh Completion
+# Source with: source <(prodinamik completion zsh)
+
+_prodinamik() {
+    local -a commands
+    commands=(
+        'run:Create a new run'
+        'list:List all runs'
+        'transition:Transition a run to a new state'
+        'debug:Show run details'
+        'config:Show configuration'
+        'validate:Validate a profile file'
+        'daemon:Start the async runtime daemon'
+        'shell:Start interactive REPL shell'
+        'new:Scaffold new profiles and projects'
+        'benchmark:Run performance benchmarks'
+        'completion:Generate shell completion script'
+        'version:Show version'
+    )
+
+    _arguments \\
+        '1: :->command' \\
+        '*: :->args'
+
+    case $state in
+        command)
+            _describe 'command' commands
+            ;;
+        args)
+            case $words[1] in
+                run)
+                    _arguments '2:profile:(content software research design)'
+                    ;;
+                new)
+                    _arguments '2:type:(profile project)'
+                    ;;
+                completion)
+                    _arguments '2:shell:(bash zsh)'
+                    ;;
+                transition|debug)
+                    # Dynamic completion would need engine access
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+compdef _prodinamik prodinamik
+"""
 
 
 if __name__ == "__main__":
