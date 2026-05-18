@@ -75,7 +75,7 @@ class ProdinamikConfig:
     state_machine: StateMachineConfig = field(default_factory=StateMachineConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     profiles: List[str] = field(default_factory=lambda: [
-        "content", "software", "research", "design",
+        "haber", "content", "software", "research", "design",
     ])
 
     @classmethod
