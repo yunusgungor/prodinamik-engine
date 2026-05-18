@@ -97,6 +97,7 @@ class CategorizedCLI(click.Group):
         ("🧪  QUALITY", ["chaos"]),
         ("🔌  EXTENSIONS", ["plugin", "ai"]),
         ("🤖  AI PROVIDERS", ["llm"]),
+        ("🤖  AGENT RUNTIME", ["agent"]),
     ]
 
     def format_commands(self, ctx, formatter):
@@ -1501,6 +1502,240 @@ def plugin_health():
         click.echo(f"   {icon} {pid:28s} {status:10s} {'✅' if healthy else '❌':8s}")
 
     click.echo(f"\n   Healthy: {healthy_count}/{len(results)}")
+
+
+# ──────────────────────────────────────────────
+# Agent Runtime CLI
+# ──────────────────────────────────────────────
+
+
+@cli.group()
+def agent():
+    """AI Agent runtime commands"""
+    pass
+
+
+@agent.group()
+def supervisor():
+    """Agent Supervisor management"""
+    pass
+
+
+@supervisor.command("start")
+def supervisor_start():
+    """Start the AgentSupervisor"""
+    import asyncio
+    from .agent_runtime import AgentSupervisor, SupervisorConfig
+    from .log import get_logger
+
+    log = get_logger()
+    engine = get_engine()
+
+    config = SupervisorConfig()
+    supervisor = AgentSupervisor(config)
+
+    async def _run():
+        await supervisor.start()
+        log.info(f"AgentSupervisor started: {supervisor.identity.node_id}")
+        click.echo(f"✅ AgentSupervisor started: {supervisor.identity.node_id}")
+        click.echo(f"   Hostname: {supervisor.identity.hostname}")
+        click.echo(f"   Max workers: {config.max_workers}")
+
+        # Keep running until keyboard interrupt
+        try:
+            while supervisor.is_running:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            await supervisor.stop()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+
+
+@supervisor.command("stop")
+def supervisor_stop():
+    """Stop the AgentSupervisor"""
+    click.echo("⚠️  Supervisor stop via CLI not yet implemented (use Ctrl+C)")
+
+
+@supervisor.command("status")
+def supervisor_status():
+    """Show AgentSupervisor status"""
+    from .agent_runtime import AgentSupervisor
+
+    # Try to get active supervisor from engine
+    engine = get_engine()
+    supervisor = getattr(engine, '_agent_supervisor', None)
+
+    if not supervisor:
+        click.echo("❌ AgentSupervisor not running. Start with: prodinamik agent supervisor start")
+        return
+
+    click.echo(f"\n📊 AgentSupervisor Status")
+    click.echo(f"{'─' * 50}")
+    click.echo(f"Node ID:     {supervisor.identity.node_id}")
+    click.echo(f"Hostname:    {supervisor.identity.hostname}")
+    click.echo(f"Running:     {'✅' if supervisor.is_running else '❌'}")
+    click.echo(f"Workers:     {supervisor.active_worker_count}/{supervisor.config.max_workers}")
+    click.echo(f"Uptime:      {supervisor.identity.uptime_seconds:.0f}s")
+    click.echo(f"Heartbeats:  {supervisor._heartbeat_count}")
+
+
+@agent.command()
+@click.argument("goal", nargs=-1, required=True)
+@click.option("--provider", "-p", help="LLM provider ID (e.g. prodinamik.llm.openai)")
+@click.option("--max-steps", "-s", default=20, help="Maximum execution steps")
+def run(goal, provider, max_steps):
+    """Submit a task to the agent runtime"""
+    import asyncio
+    from .agent_runtime import AgentSupervisor, SupervisorConfig
+    from .agent_base import AgentResult
+    from .log import get_logger
+
+    log = get_logger()
+    goal_text = " ".join(goal)
+
+    click.echo(f"🚀 Submitting task: {goal_text[:80]}...")
+
+    # Create temporary supervisor + worker
+    config = SupervisorConfig()
+    supervisor = AgentSupervisor(config)
+
+    async def _run_task():
+        await supervisor.start()
+
+        worker_id = await supervisor.spawn_worker(
+            task_id=f"cli-{hash(goal_text) % 10000:04d}",
+            goal=goal_text,
+            context={"source": "cli"},
+            tools=[],
+            provider_id=provider,
+            max_steps=max_steps,
+        )
+
+        click.echo(f"   Worker ID: {worker_id}")
+
+        # Wait for worker to complete
+        while True:
+            worker = supervisor.get_worker(worker_id)
+            if not worker:
+                break
+            if worker.status.value in ("completed", "failed", "cancelled"):
+                break
+            await asyncio.sleep(0.5)
+
+        await supervisor.stop()
+
+        if worker and worker.status.value == "completed":
+            click.echo(f"\n✅ Task completed ({worker.duration_ms:.0f}ms)")
+        elif worker and worker.status.value == "failed":
+            click.echo(f"\n❌ Task failed: {worker.error}")
+        else:
+            click.echo(f"\n⚠️  Task {worker.status.value if worker else 'unknown'}")
+
+    asyncio.run(_run_task())
+
+
+@agent.command("list")
+def list_workers():
+    """List all workers"""
+    click.echo("📋 Workers")
+    click.echo(f"{'─' * 60}")
+
+    engine = get_engine()
+    supervisor = getattr(engine, '_agent_supervisor', None)
+
+    if not supervisor:
+        click.echo("No active supervisor. Use: prodinamik agent supervisor start")
+        return
+
+    workers = supervisor.list_workers()
+    if not workers:
+        click.echo("No workers.")
+        return
+
+    for w in workers:
+        status_icon = {
+            "pending": "⏳",
+            "running": "🔄",
+            "completed": "✅",
+            "failed": "❌",
+            "cancelled": "🚫",
+            "crashed": "💥",
+        }.get(w.status.value, "❓")
+        click.echo(f"{status_icon} {w.worker_id}: {w.goal[:50]}... [{w.status.value}]")
+
+
+@agent.command()
+@click.argument("worker_id")
+def status(worker_id):
+    """Show worker details"""
+    engine = get_engine()
+    supervisor = getattr(engine, '_agent_supervisor', None)
+
+    if not supervisor:
+        click.echo("No active supervisor.")
+        return
+
+    worker = supervisor.get_worker(worker_id)
+    if not worker:
+        click.echo(f"❌ Worker not found: {worker_id}")
+        return
+
+    click.echo(f"\n📊 Worker: {worker.worker_id}")
+    click.echo(f"{'─' * 50}")
+    click.echo(f"Task ID:     {worker.task_id}")
+    click.echo(f"Status:      {worker.status.value}")
+    click.echo(f"Goal:        {worker.goal[:100]}")
+    click.echo(f"Duration:    {worker.duration_ms:.0f}ms")
+    click.echo(f"Progress:    {worker.progress:.0%}")
+    if worker.error:
+        click.echo(f"Error:       {worker.error}")
+
+
+@agent.command()
+@click.argument("worker_id")
+def cancel(worker_id):
+    """Cancel a running worker"""
+    engine = get_engine()
+    supervisor = getattr(engine, '_agent_supervisor', None)
+
+    if not supervisor:
+        click.echo("No active supervisor.")
+        return
+
+    if supervisor.cancel_worker(worker_id):
+        click.echo(f"✅ Worker cancelled: {worker_id}")
+    else:
+        click.echo(f"❌ Worker not found: {worker_id}")
+
+
+@agent.command()
+def providers():
+    """List available LLM providers"""
+    click.echo("🔌 Available LLM Providers")
+    click.echo(f"{'─' * 50}")
+
+    try:
+        from .llm_registry import LLMProviderRegistry
+        registry = LLMProviderRegistry.get_instance()
+        providers_list = registry.list_providers()
+
+        if not providers_list:
+            click.echo("No LLM providers registered.")
+            click.echo("Enable one with: prodinamik plugin enable prodinamik.llm.openai")
+            return
+
+        for p in providers_list:
+            click.echo(f"✅ {p.manifest.id} v{p.manifest.version}")
+            if hasattr(p, 'models') and p.models and len(p.models) > 3:
+                click.echo(f"   Models: {', '.join(p.models[:3])}...")
+            if hasattr(p, 'default_model') and p.default_model:
+                click.echo(f"   Default: {p.default_model}")
+    except Exception as e:
+        click.echo(f"❌ LLM registry not available: {e}")
 
 
 if __name__ == "__main__":
