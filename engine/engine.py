@@ -30,6 +30,7 @@ def _discover_profiles():
         return _PROFILES
 
     known = {
+        "haber": ("profiles.haber", "HaberProfile"),
         "content": ("profiles.content", "ContentProfile"),
         "software": ("profiles.software", "SoftwareProfile"),
         "research": ("profiles.research", "ResearchProfile"),

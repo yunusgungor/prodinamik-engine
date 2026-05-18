@@ -447,6 +447,7 @@ def _discover_profiles():
         return _PROFILE_REGISTRY
 
     known = {
+        "haber": ("profiles.haber", "HaberProfile"),
         "content": ("profiles.content", "ContentProfile"),
         "software": ("profiles.software", "SoftwareProfile"),
         "research": ("profiles.research", "ResearchProfile"),

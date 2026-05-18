@@ -1,58 +1,11 @@
-# Prodinamik Engine v1.3 — Configuration
-#
-# All fields are optional. Defaults are used when a field is omitted.
-#
-# Config file resolution (ascending priority):
-#   1. ./prodinamik.yaml (project root)
-#   2. ~/.config/prodinamik/config.yaml (user global)
-#   3. Built-in defaults
-
-# Data directory (runs, WAL, events, cache)
-data_dir: ".hermes"
-
-# Logging
+data_dir: "./.hermes"
 log:
-  level: "INFO"        # DEBUG | INFO | WARNING | ERROR
-  format: "text"       # "text" | "json"
-  file: null           # null = stdout, or "/var/log/prodinamik.log"
-
-# Degradation thresholds
-degradation:
-  disk_usage_max_pct: 95
-  disk_usage_warn_pct: 80
-  consecutive_llm_failures: 3
-  consecutive_adapter_failures: 3
-
-# Default budget limits (profiles can override)
-budget:
-  soft_limit_usd: 1.0
-  hard_limit_usd: 5.0
-  max_llm_calls_per_run: 20
-  max_storage_mb: 100
-  timeout_per_state: 3600
-
-# Event store
-event_store:
-  retention_days: 90
-  compaction_batch: 10
-  max_events_per_run: 10000
-
-# State machine defaults
-state_machine:
-  max_steps: 100
-  default_timeout: 86400
-
-# Profiles to load (first = default)
-profiles:
-  - content
-  - software
-  - research
-  - design
-
-# LLM Provider Configuration
-llm:
-  enabled: false
-  default_provider: ""
-  fallback_enabled: true
-  max_retries: 3
-  providers: {}
+  level: "INFO"
+raft:
+  host: "127.0.0.1"
+  port: 9001
+  peers: []
+server:
+  port: 8080
+  rate_limit: 20
+  burst: 40
