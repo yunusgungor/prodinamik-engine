@@ -408,10 +408,6 @@ class RunManager:
         # Atomic rename (POSIX guarantee)
         tmp.replace(final)
 
-    # ──────────────────────────────────────
-    # WAL (Write-Ahead Log)
-    # ──────────────────────────────────────
-
     def _append_wal(self, entry: dict):
         """WAL'a entry ekle"""
         wal_dir = self.base_path / "wal"
@@ -511,14 +507,37 @@ class RunManager:
         latest_snapshot_time = max(snap_times)
 
         # Snapshot'tan eski WAL dosyalarını temizle
+        deleted = 0
         for wf in sorted(wal_dir.glob("wal_*.log")):
-            # Dosya adından timestamp çıkar
-            # wal_20260518_123456_123456.log
             parts = wf.stem.split("_")
             if len(parts) >= 3:
                 file_time = f"{parts[1]}T{parts[2]}"
                 if file_time < latest_snapshot_time[:19]:
                     wf.unlink()
+                    deleted += 1
+
+        if deleted and hasattr(self, 'log') and self.log:
+            self.log.debug(f"WAL compacted: {deleted} old entries removed")
+
+    def get_state_elapsed(self, slug: str) -> Optional[float]:
+        """
+        Bir run'ın mevcut state'inde ne kadar süredir olduğunu döndür (saniye).
+        Run bulunamazsa None döner.
+        """
+        run_path = self._run_path(slug)
+        if not run_path.exists():
+            return None
+
+        meta = self._read_meta(run_path)
+        if not meta:
+            return None
+
+        try:
+            updated = datetime.fromisoformat(meta.updated_at)
+        except (ValueError, TypeError):
+            return None
+
+        return (datetime.now() - updated).total_seconds()
 
     # ──────────────────────────────────────
     # Meta Read/Write

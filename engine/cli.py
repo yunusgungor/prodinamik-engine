@@ -1,16 +1,19 @@
-"""Prodinamik Engine v1.0 — CLI Entry Point
+"""Prodinamik Engine v1.0 — CLI Entry Point (Async)
 
 Usage:
     prodinamik run <profile> <title>        # Start new run
     prodinamik list                          # List all runs
-    prodinamik debug <slug>                  # Debug CLI (interactive)
+    prodinamik transition <slug> <state>     # State transition
+    prodinamik debug <slug>                  # Show run details
     prodinamik config                        # Show config
     prodinamik validate <profile_path>       # Validate profile
+    prodinamik daemon                        # Start daemon (async runtime)
     prodinamik version                       # Show version
 """
 
 import sys
 import os
+import asyncio
 from pathlib import Path
 from typing import Optional
 
@@ -18,20 +21,20 @@ import click
 
 from .config import ProdinamikConfig
 from .log import setup as setup_logging, get_logger
+from .runtime import AsyncEngine, run_engine
 
 
 # ──────────────────────────────────────────────
-# Shared state (initialized once)
+# Shared state
 # ──────────────────────────────────────────────
 
-_engine = None
-_config = None
+_engine: Optional[AsyncEngine] = None
+_config: Optional[ProdinamikConfig] = None
 
 
 def get_config() -> ProdinamikConfig:
     global _config
     if _config is None:
-        # Config discovery: prodinamik.yaml in CWD or user config dir
         paths = [
             Path("prodinamik.yaml"),
             Path.home() / ".config" / "prodinamik" / "config.yaml",
@@ -45,18 +48,16 @@ def get_config() -> ProdinamikConfig:
     return _config
 
 
-def get_engine():
-    """Lazy-init engine for run/debug commands"""
+def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
-        from .engine import ProdinamikEngine
         cfg = get_config()
-        _engine = ProdinamikEngine(cfg)
+        _engine = AsyncEngine(cfg)
     return _engine
 
 
 # ──────────────────────────────────────────────
-# CLI Commands
+# CLI
 # ──────────────────────────────────────────────
 
 
@@ -114,7 +115,7 @@ def transition(slug: str, to_state: str):
     """Transition a run to a new state"""
     engine = get_engine()
     try:
-        run_obj = engine.transition(slug, to_state)
+        run_obj = engine._do_transition(slug, to_state)
         click.echo(f"✅ {slug}: → {run_obj.meta.state}")
     except ValueError as e:
         click.echo(f"❌ {e}", err=True)
@@ -124,20 +125,36 @@ def transition(slug: str, to_state: str):
 @cli.command()
 @click.argument("slug", required=False)
 def debug(slug: Optional[str]):
-    """Interactive debug CLI for a run"""
+    """Show run details or engine status"""
     engine = get_engine()
     if slug:
-        # Show run info
         run_obj = engine.get_run(slug)
         if run_obj:
+            elapsed = engine.run_manager.get_state_elapsed(slug)
             click.echo(f"📊 Run: `{run_obj.meta.slug}`")
             click.echo(f"   Profile: {run_obj.meta.profile}")
             click.echo(f"   State:   {run_obj.meta.state}")
             click.echo(f"   Status:  {run_obj.meta.status}")
+            if elapsed is not None:
+                click.echo(f"   Elapsed: {elapsed:.0f}s in state")
+            # Check timeout
+            profile = engine._get_profile(run_obj.meta.profile)
+            if profile and profile.state_machine:
+                state_def = profile.state_machine.config.states.get(run_obj.meta.state)
+                if state_def and state_def.timeout_seconds:
+                    remaining = max(0, state_def.timeout_seconds - elapsed)
+                    click.echo(f"   Timeout: {remaining:.0f}s remaining "
+                               f"(limit: {state_def.timeout_seconds}s)")
         else:
             click.echo(f"❌ Run '{slug}' not found")
     else:
-        click.echo("Usage: prodinamik debug <slug>")
+        health = engine.health_snapshot
+        click.echo(f"📊 Engine Status:")
+        click.echo(f"   Profiles:     {', '.join(health['profiles'])}")
+        click.echo(f"   Degradation:  {health['degradation']}")
+        click.echo(f"   Health Score: {health['health_score']:.2f}")
+        click.echo(f"   Active Runs:  {health['active_runs']}")
+        click.echo(f"   Total Cost:   ${health['total_cost']:.4f}")
 
 
 @cli.command()
@@ -146,7 +163,7 @@ def config():
     cfg = get_config()
     import yaml
     click.echo("📋 Configuration:")
-    click.echo(yaml.dump(cfg.to_dict(), default_flow_style=False))
+    click.echo(yaml.dump(cfg.to_dict(), default_flow_style=False).strip())
 
 
 @cli.command()
@@ -154,17 +171,14 @@ def config():
 def validate(profile_path: str):
     """Validate a profile file"""
     from .profile import ProductProfile
-    from .state_machine import StateMachineParser
 
     sys.path.insert(0, str(Path(profile_path).parent))
     try:
-        # Try executing the file
         import importlib.util
         spec = importlib.util.spec_from_file_location("profile_mod", profile_path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        # Find ProductProfile subclasses
         profiles = []
         for name in dir(mod):
             obj = getattr(mod, name)
@@ -188,6 +202,19 @@ def validate(profile_path: str):
 
     except Exception as e:
         click.echo(f"❌ Validation failed: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+def daemon():
+    """Start the async runtime daemon (blocking)"""
+    click.echo("🚀 Prodinamik Engine daemon starting...")
+    try:
+        engine = run_engine()
+    except KeyboardInterrupt:
+        click.echo("\n👋 Daemon stopped.")
+    except Exception as e:
+        click.echo(f"❌ Daemon error: {e}", err=True)
         sys.exit(1)
 
 
