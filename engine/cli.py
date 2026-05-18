@@ -82,7 +82,36 @@ def get_engine() -> AsyncEngine:
 # ──────────────────────────────────────────────
 
 
-@click.group()
+class CategorizedCLI(click.Group):
+    """Click Group with categorized help output."""
+
+    COMMAND_CATEGORIES = [
+        ("🏗️  CORE", [
+            "run", "list", "transition", "debug", "config",
+            "validate", "daemon", "shell", "version",
+        ]),
+        ("🧰  DEVELOPER", ["new", "benchmark", "completion"]),
+        ("📊  OBSERVABILITY", ["dashboard", "metrics", "audit", "alert"]),
+        ("🔒  SECURITY", ["auth", "serve"]),
+        ("🌐  DISTRIBUTION", ["raft"]),
+        ("🧪  QUALITY", ["chaos"]),
+        ("🔌  EXTENSIONS", ["plugin", "ai"]),
+    ]
+
+    def format_commands(self, ctx, formatter):
+        cmd_map = {c.name: c for c in self.commands.values()}
+        for cat, names in self.COMMAND_CATEGORIES:
+            items = []
+            for name in names:
+                cmd = cmd_map.get(name)
+                if cmd:
+                    items.append((name, cmd.get_short_help_str(45)))
+            if items:
+                with formatter.section(cat):
+                    formatter.write_dl(items)
+
+
+@click.group(cls=CategorizedCLI)
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
 @click.option("--config", "-c", type=click.Path(exists=True), help="Config file path")
 def cli(verbose: bool, config: Optional[str]):
@@ -223,6 +252,7 @@ def validate(profile_path: str):
 
     except Exception as e:
         click.echo(f"❌ Validation failed: {e}", err=True)
+        click.echo("   Try: Check the profile file format and ensure all required fields are present.", err=True)
         sys.exit(1)
 
 
@@ -236,13 +266,15 @@ def daemon():
         click.echo("\n👋 Daemon stopped.")
     except Exception as e:
         click.echo(f"❌ Daemon error: {e}", err=True)
+        click.echo("   Try: Check 'prodinamik config' and logs for details.", err=True)
         sys.exit(1)
 
 
 @cli.command()
 def version():
     """Show version"""
-    click.echo("Prodinamik Engine v1.1.0")
+    from . import __version__
+    click.echo(f"Prodinamik Engine v{__version__}")
 
 
 # ──────────────────────────────────────────────
@@ -322,6 +354,7 @@ def benchmark(runs: int):
             click.echo(f"   {name}: avg={metrics['avg']}ms  p95={metrics['p95']}ms  (n={metrics['samples']})")
     except Exception as e:
         click.echo(f"❌ Benchmark failed: {e}", err=True)
+        click.echo("   Try: Ensure engine is initialized and at least one run exists.", err=True)
         sys.exit(1)
 
 

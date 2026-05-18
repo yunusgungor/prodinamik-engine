@@ -1,4 +1,4 @@
-"""Prodinamik Engine v1.0
+"""Prodinamik Engine v1.3
 
 Product-Agnostic Pipeline Engine.
 

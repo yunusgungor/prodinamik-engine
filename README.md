@@ -2,7 +2,7 @@
 
 **Product-Agnostic Pipeline Engine** — Formal state machine, multi-tier validation, event sourcing, Raft consensus, plugin ecosystem, and AI-native drift detection/prediction/remediation.
 
-> 🚀 **49 Python modülü · 333 test · 46 CLI komutu · 4 üretim profili**
+> 🚀 **49 Python modules · 333 tests · 46 CLI commands · 4 production profiles**
 
 [![Tests](https://img.shields.io/badge/tests-333%20passed-brightgreen)](https://github.com/yunusgungor/prodinamik-engine)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://python.org)
@@ -338,11 +338,11 @@ prodinamik ai recommend drafting
 ## 🚀 Project Timeline
 
 ```
-Kısa Vade  (9/9):   ✅ Core, Resilience, Runtime, DevEx, Observability, Security, Chaos
-Orta Vade  (3/3):   ✅ Monitoring, Documentation, Performance
-Uzun Vade  (3/3):   ✅ Distribution & Scaling, Plugin Ecosystem, AI-Native Features
+Short-Term  (9/9):   ✅ Core, Resilience, Runtime, DevEx, Observability, Security, Chaos
+Medium-Term (3/3):   ✅ Monitoring, Documentation, Performance
+Long-Term   (3/3):   ✅ Distribution & Scaling, Plugin Ecosystem, AI-Native Features
 ────────────────────────────────────────────────────────
-TÜM ROADMAP TAMAMLANDI
+ROADMAP COMPLETE
 ```
 
 ---

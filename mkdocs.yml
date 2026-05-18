@@ -96,6 +96,8 @@ nav:
     - Testing: dev/testing.md
     - Docker & CI/CD: dev/docker-ci-cd.md
     - Contributing: dev/contributing.md
+    - Architecture Decisions: dev/adr.md
+    - Migration Guide: dev/migration.md
   - API Reference:
     - Engine Core: api/engine.md
     - CLI: api/cli.md
@@ -139,6 +141,10 @@ nav:
     - Skill Emergence: api/skillforge.md
     - Run Recommender: api/recommend.md
     - Auto-Remediation: api/autofix.md
+  - Reference:
+    - Troubleshooting: troubleshooting.md
+    - FAQ: faq.md
+    - Glossary: glossary.md
   - About:
     - License: license.md
     - Changelog: changelog.md

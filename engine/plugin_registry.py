@@ -586,8 +586,8 @@ class PluginRegistry:
                 )
                 try:
                     await state.instance.on_enable()
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.log.warning("Startup hook error for plugin %s: %s", pid, e)
 
     def shutdown(self) -> None:
         """Disable all plugins on shutdown"""

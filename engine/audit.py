@@ -26,6 +26,8 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Iterator, Generator
 
+from .log import get_logger
+
 
 # ──────────────────────────────────────────────
 # Audit Entry
@@ -352,7 +354,8 @@ class AuditLog:
                             yield AuditEntry.from_dict(json.loads(line))
                         except (json.JSONDecodeError, KeyError):
                             continue
-            except Exception:
+            except Exception as e:
+                get_logger().warning("Failed to read archived audit segment %s: %s", seg_path, e)
                 continue
 
         # Active segment
@@ -369,7 +372,8 @@ class AuditLog:
                             yield AuditEntry.from_dict(json.loads(line))
                         except (json.JSONDecodeError, KeyError):
                             continue
-            except Exception:
+            except Exception as e:
+                get_logger().warning("Failed to read active audit log %s: %s", self._active_file, e)
                 pass
 
     def _load_index(self):
@@ -379,7 +383,8 @@ class AuditLog:
             try:
                 idx = json.loads(index_path.read_text())
                 self._segment_count = idx.get("segment_count", 0)
-            except Exception:
+            except Exception as e:
+                get_logger().debug("Failed to load audit index: %s", e)
                 self._segment_count = 0
 
     def _update_index(self, segment_info: dict):
@@ -389,7 +394,8 @@ class AuditLog:
         if index_path.exists():
             try:
                 index = json.loads(index_path.read_text())
-            except Exception:
+            except Exception as e:
+                get_logger().debug("Failed to read audit index for update: %s", e)
                 pass
         index["segments"].append(segment_info)
         index_path.write_text(json.dumps(index, indent=2))

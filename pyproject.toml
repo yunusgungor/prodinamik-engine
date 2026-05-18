@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prodinamik-engine"
-version = "1.0.0"
+version = "1.3.0"
 description = "Product-Agnostic Pipeline Engine — State machine, validators, event sourcing, cost tracking, Raft consensus"
 authors = [
     { name = "Yunus Güngör", email = "mail@yunusgungor.com" },

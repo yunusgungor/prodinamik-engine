@@ -246,7 +246,8 @@ class HermesPluginBridge:
 
                     meta[key] = value
             return meta
-        except Exception:
+        except Exception as e:
+            self.log.debug("Failed to parse skill frontmatter %s: %s", skill_file, e)
             return None
 
     def _is_prodinamik_skill(self, meta: Dict[str, Any]) -> bool:

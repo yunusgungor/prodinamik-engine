@@ -9,7 +9,19 @@
          <lastmod>2026-05-18</lastmod>
     </url>
     <url>
+         <loc>https://yunusgungor.github.io/prodinamik-engine/faq/</loc>
+         <lastmod>2026-05-18</lastmod>
+    </url>
+    <url>
+         <loc>https://yunusgungor.github.io/prodinamik-engine/glossary/</loc>
+         <lastmod>2026-05-18</lastmod>
+    </url>
+    <url>
          <loc>https://yunusgungor.github.io/prodinamik-engine/license/</loc>
+         <lastmod>2026-05-18</lastmod>
+    </url>
+    <url>
+         <loc>https://yunusgungor.github.io/prodinamik-engine/troubleshooting/</loc>
          <lastmod>2026-05-18</lastmod>
     </url>
     <url>
@@ -181,6 +193,10 @@
          <lastmod>2026-05-18</lastmod>
     </url>
     <url>
+         <loc>https://yunusgungor.github.io/prodinamik-engine/dev/adr/</loc>
+         <lastmod>2026-05-18</lastmod>
+    </url>
+    <url>
          <loc>https://yunusgungor.github.io/prodinamik-engine/dev/architecture/</loc>
          <lastmod>2026-05-18</lastmod>
     </url>
@@ -190,6 +206,10 @@
     </url>
     <url>
          <loc>https://yunusgungor.github.io/prodinamik-engine/dev/docker-ci-cd/</loc>
+         <lastmod>2026-05-18</lastmod>
+    </url>
+    <url>
+         <loc>https://yunusgungor.github.io/prodinamik-engine/dev/migration/</loc>
          <lastmod>2026-05-18</lastmod>
     </url>
     <url>

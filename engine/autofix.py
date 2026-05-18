@@ -102,6 +102,7 @@ class RemediationAction:
                     return await result
                 return result
             except Exception as e:
+                get_logger().error("Remediation action '%s' failed: %s", self.description, e)
                 return False
         return False
 

@@ -93,8 +93,8 @@ class Benchmark:
         # Warmup
         try:
             fn(*args, **kwargs)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Benchmark '%s' warmup failed: %s", name, e)
 
         for i in range(self.iterations):
             start = time.perf_counter()

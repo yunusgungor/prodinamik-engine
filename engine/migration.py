@@ -239,8 +239,8 @@ def demo():
     v2_yaml = SOFTWARE_SM_V2  # defined below
     try:
         v2_config = StateMachineParser.parse_string(v2_yaml)
-    except Exception:
-        print(f"   ⚠️  V2 YAML parse skipped (for demo purposes)")
+    except Exception as e:
+        print(f"   ⚠️  V2 YAML parse skipped: {e}")
         v2_config = sw.state_machine.config
 
     plan = SOFTWARE_V1_TO_V2

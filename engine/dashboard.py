@@ -17,6 +17,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
+from .log import get_logger
+
 
 class Dashboard:
     """Terminal health dashboard for Prodinamik Engine"""
@@ -134,7 +136,8 @@ class Dashboard:
 
         try:
             runs = self.engine.list_runs(include_archived=False)
-        except Exception:
+        except Exception as e:
+            get_logger().warning("Dashboard run matrix unavailable: %s", e)
             return f"{self.DIM}Run matrix unavailable{self.RESET}"
 
         if not runs:
@@ -155,8 +158,8 @@ class Dashboard:
                     secs = self.engine.run_manager.get_state_elapsed(r.slug)
                     if secs is not None:
                         elapsed = f" [{secs:.0f}s]"
-                except Exception:
-                    pass
+                except Exception as e:
+                    get_logger().debug("Dashboard elapsed time error for %s: %s", r.slug, e)
 
                 state_color = self._state_color(r.state)
                 status_icon = "🔄" if r.status == "active" else "📦"
@@ -210,7 +213,8 @@ class Dashboard:
                         if hasattr(self.engine, '_get_event_store')
                     )
                     daily_est = total / max(1, len(runs)) * 0.05  # rough heuristic
-            except Exception:
+            except Exception as e:
+                get_logger().debug("Dashboard cost summary error: %s", e)
                 pass
 
         return (
@@ -248,7 +252,8 @@ class Dashboard:
         if self.engine:
             try:
                 return self.engine.health_snapshot
-            except Exception:
+            except Exception as e:
+                get_logger().debug("Dashboard health snapshot error: %s", e)
                 pass
         return {}
 
@@ -305,7 +310,8 @@ def render_html_dashboard(engine, metrics_snapshot: dict = None) -> str:
     if engine:
         try:
             health = engine.health_snapshot
-        except Exception:
+        except Exception as e:
+            get_logger().warning("HTML dashboard health snapshot error: %s", e)
             pass
 
     deg = health.get("degradation", "FULL")
@@ -326,7 +332,8 @@ def render_html_dashboard(engine, metrics_snapshot: dict = None) -> str:
                     <td><span class="state-{r.state}">{r.state}</span></td>
                     <td>{r.status}</td>
                 </tr>\n"""
-        except Exception:
+        except Exception as e:
+            get_logger().warning("HTML dashboard runs list error: %s", e)
             runs_html = "<tr><td colspan='4'>N/A</td></tr>"
 
     return f"""<!DOCTYPE html>

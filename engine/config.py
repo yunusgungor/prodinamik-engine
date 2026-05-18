@@ -1,4 +1,4 @@
-"""Prodinamik Engine v1.0 — Configuration
+"""Prodinamik Engine v1.3 — Configuration
 
 Config dataclass + YAML/config file parsing.
 Environment variable override support.

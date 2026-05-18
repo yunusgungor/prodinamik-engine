@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Callable
 from datetime import datetime, timedelta
 
+from .log import get_logger
+
 
 # ──────────────────────────────────────────────
 # Metric Types
@@ -305,7 +307,8 @@ class EngineMetrics:
 
         try:
             health = self.engine.health_snapshot
-        except Exception:
+        except Exception as e:
+            get_logger().debug("Metrics poll: health snapshot error: %s", e)
             health = {}
 
         g = self.registry.gauge
@@ -338,7 +341,8 @@ class EngineMetrics:
         if self.engine:
             try:
                 engine_snap = self.engine.health_snapshot
-            except Exception:
+            except Exception as e:
+                get_logger().debug("Metrics snapshot: health error: %s", e)
                 pass
 
         return {
