@@ -238,7 +238,7 @@ class PluginRegistry:
             class_name = parts[-1]
             module = importlib.import_module(module_path)
             cls = getattr(module, class_name, None)
-            if cls and inspect.isclass(cls) and issubclass(cls, PluginBase):
+            if cls and inspect.isclass(cls) and issubclass(cls, PluginBase) and not inspect.isabstract(cls):
                 return cls
             return None
         except Exception as e:
@@ -304,6 +304,11 @@ class PluginRegistry:
                 return False
 
             await instance.on_enable()
+
+            # Auto-register LLM providers
+            if state.manifest.plugin_type == PluginType.LLM_PROVIDER:
+                from .llm_registry import LLMProviderRegistry
+                LLMProviderRegistry.get_instance().register(instance)
 
             # Register hooks if HookRegistry available
             if self._hook_registry:

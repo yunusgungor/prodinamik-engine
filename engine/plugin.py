@@ -69,6 +69,8 @@ class PluginType(Enum):
     STORE = "store"                # Storage backend
     UI = "ui"                      # Dashboard/UI extension
     INTEGRATION = "integration"    # External service integration
+    LLM_PROVIDER = "llm_provider"  # 🆕 AI/LLM provider (OpenAI, Anthropic, Ollama, etc.)
+    AGENT = "agent"                # 🆕 Autonomous agent for multi-step tasks
     OTHER = "other"                # Uncategorized
 
 
@@ -368,7 +370,7 @@ def discover_plugin_classes(module: Any) -> List[Type[PluginBase]]:
         if (inspect.isclass(obj)
                 and issubclass(obj, PluginBase)
                 and obj is not PluginBase
-                and not getattr(obj, '_abstract', False)):
+                and not inspect.isabstract(obj)):
             plugins.append(obj)
     return plugins
 

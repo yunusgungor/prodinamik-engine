@@ -26,6 +26,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .log import get_logger
+from .llm_base import LLMProviderPlugin
 
 
 # ──────────────────────────────────────────────
@@ -308,8 +309,10 @@ class AutoRemediator:
         result = await remediator.execute(plan, context)
     """
 
-    def __init__(self, matcher: Optional[FailureMatcher] = None):
+    def __init__(self, matcher: Optional[FailureMatcher] = None,
+                 llm_provider: Optional[LLMProviderPlugin] = None):
         self.matcher = matcher or FailureMatcher()
+        self.llm_provider = llm_provider
         self.log = get_logger()
         self._results: List[RemediationResult] = []
         self._history: Dict[str, int] = defaultdict(int)  # pattern → count
@@ -510,6 +513,48 @@ class AutoRemediator:
         if not plan:
             return None
         return await self.execute(plan, context)
+
+    def suggest_fix(self, failure: FailureSignature) -> str:
+        """Use LLM to suggest a fix for an unknown failure pattern
+
+        Args:
+            failure: FailureSignature describing the unknown failure
+
+        Returns:
+            Suggested fix description, or empty string if no LLM provider
+        """
+        if not self.llm_provider:
+            return ""
+
+        try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an auto-remediation assistant. Given a failure signature "
+                        "that does not match any known pattern, suggest a remediation "
+                        "strategy. Provide concrete steps and expected outcomes."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Unknown failure pattern:\n"
+                        f"Name: {failure.name}\n"
+                        f"Class: {failure.failure_class.value}\n"
+                        f"Description: {failure.description}\n"
+                        f"Match patterns: {', '.join(failure.match_patterns)}\n\n"
+                        "Suggest a remediation plan with specific actions to resolve this failure."
+                    ),
+                },
+            ]
+            result = self.llm_provider.complete(
+                messages, temperature=0.3, max_tokens=400
+            )
+            return result.get("content", "")
+        except Exception as e:
+            self.log.warning("LLM fix suggestion failed: %s", e)
+            return ""
 
     def get_stats(self) -> Dict[str, Any]:
         """Get remediation statistics"""

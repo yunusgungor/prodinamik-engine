@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 from .log import get_logger
+from .llm_base import LLMProviderPlugin
 
 
 # ──────────────────────────────────────────────
@@ -523,10 +524,12 @@ class AIDegradationForecaster:
         summary = forecaster.generate_report()
     """
 
-    def __init__(self, thresholds: Optional[Dict[str, Dict[str, float]]] = None):
+    def __init__(self, thresholds: Optional[Dict[str, Dict[str, float]]] = None,
+                 llm_provider: Optional[LLMProviderPlugin] = None):
         self.collector = MetricCollector()
         self.forecast_engine = ForecastEngine(self.collector)
         self.predictor = DegradationPredictor(self.forecast_engine, thresholds)
+        self.llm_provider = llm_provider
         self._prediction_count = 0
 
     def record_metric(self, name: str, value: float,
@@ -565,7 +568,7 @@ class AIDegradationForecaster:
         critical_count = sum(1 for l in levels if l == DegradationLevel.CRITICAL)
         warning_count = sum(1 for l in levels if l == DegradationLevel.WARNING)
 
-        return {
+        report = {
             "timestamp": datetime.now().isoformat(),
             "metrics_tracked": len(self.collector.metrics),
             "total_points": self.collector.total_points,
@@ -578,6 +581,16 @@ class AIDegradationForecaster:
             "predictions": {k: v.to_dict() for k, v in predictions.items()},
         }
 
+        if self.llm_provider:
+            insight = self.generate_whatif(
+                f"Predict degradation at horizon {horizon_minutes}m: "
+                f"{critical_count} critical, {warning_count} warning"
+            )
+            if insight:
+                report["ai_insight"] = insight
+
+        return report
+
     @property
     def metrics(self) -> Dict[str, Any]:
         return {
@@ -585,6 +598,51 @@ class AIDegradationForecaster:
             "total_points": self.collector.total_points,
             "prediction_runs": self._prediction_count,
         }
+
+    def generate_whatif(self, scenario: str) -> str:
+        """Use LLM for what-if analysis of a degradation scenario
+
+        Args:
+            scenario: Natural language description of the scenario
+
+        Returns:
+            AI-generated analysis string, or empty string if no LLM provider
+        """
+        if not self.llm_provider:
+            return ""
+
+        try:
+            metrics_context = "\n".join(
+                f"- {m}: {self.collector.latest_value(m)}"
+                for m in self.collector.metrics[-10:]
+            )
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a degradation forensics assistant. Given a scenario "
+                        "description and current metric values, provide a concise "
+                        "what-if analysis of likely impacts, root causes, and "
+                        "recommended preventive actions."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Scenario: {scenario}\n\n"
+                        f"Current metrics:\n{metrics_context or '(none tracked)'}\n\n"
+                        "Provide a brief what-if analysis: what would happen, "
+                        "what might cause it, and how to prevent/mitigate."
+                    ),
+                },
+            ]
+            result = self.llm_provider.complete(
+                messages, temperature=0.3, max_tokens=400
+            )
+            return result.get("content", "")
+        except Exception as e:
+            self.log.warning("LLM what-if analysis failed: %s", e)
+            return ""
 
     def set_threshold(self, metric: str, warning: float, critical: float) -> None:
         """Set or update thresholds for a metric"""

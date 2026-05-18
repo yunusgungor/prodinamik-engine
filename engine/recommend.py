@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from .log import get_logger
+from .llm_base import LLMProviderPlugin
 
 
 # ──────────────────────────────────────────────
@@ -440,10 +441,11 @@ class AIRecommender:
         bottlenecks = recommender.find_bottlenecks()
     """
 
-    def __init__(self):
+    def __init__(self, llm_provider: Optional[LLMProviderPlugin] = None):
         self.history = TransitionHistory()
         self.analyzer = TransitionAnalyzer(self.history)
         self.recommender = RunRecommender(self.history, self.analyzer)
+        self.llm_provider = llm_provider
         self.log = get_logger()
 
     def record_transition(self, run_id: str, profile: str,
@@ -492,6 +494,54 @@ class AIRecommender:
                 r.from_state for r in self.history._records
             ) | set(r.to_state for r in self.history._records)),
         }
+
+    def explain_recommendation(self, recommendation: Recommendation) -> str:
+        """Use LLM to generate a human-friendly explanation of a recommendation
+
+        Args:
+            recommendation: Recommendation object to explain
+
+        Returns:
+            Natural language explanation, or statistical reasoning if no LLM
+        """
+        if not self.llm_provider:
+            return recommendation.reasoning
+
+        try:
+            states_str = ", ".join(
+                f"{s}({sc:.0%})"
+                for s, sc in recommendation.recommended_states
+            )
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a recommendation assistant for a state machine pipeline. "
+                        "Given a recommendation with scored next states, explain in plain "
+                        "language why the top choice is recommended and what the user "
+                        "should do next."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Current state: {recommendation.current_state}\n"
+                        f"Best next state: {recommendation.best_next_state}\n"
+                        f"Confidence: {recommendation.confidence:.0%}\n"
+                        f"All recommendations: {states_str}\n"
+                        f"Estimated duration: {recommendation.estimated_duration:.0f}s\n"
+                        f"Warnings: {'; '.join(recommendation.warnings) or 'None'}\n\n"
+                        "Explain this recommendation in a helpful, concise way."
+                    ),
+                },
+            ]
+            result = self.llm_provider.complete(
+                messages, temperature=0.3, max_tokens=300
+            )
+            return result.get("content", recommendation.reasoning)
+        except Exception as e:
+            self.log.warning("LLM recommendation explanation failed: %s", e)
+            return recommendation.reasoning
 
     @property
     def metrics(self) -> Dict[str, Any]:

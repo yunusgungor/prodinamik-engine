@@ -25,6 +25,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .log import get_logger
+from .llm_base import LLMProviderPlugin
 
 
 # ──────────────────────────────────────────────
@@ -642,13 +643,15 @@ class AIDriftDetector:
         report = detector.generate_report()
     """
 
-    def __init__(self, max_history: int = 1000):
+    def __init__(self, max_history: int = 1000,
+                 llm_provider: Optional[LLMProviderPlugin] = None):
         self.collector = DriftPatternCollector(max_history=max_history)
         self.trend_analyzer = TrendAnalyzer(self.collector)
         self.emergence_detector = EmergenceDetector(
             self.collector, self.trend_analyzer
         )
         self.anomaly_scanner = AnomalyScanner(self.collector)
+        self.llm_provider = llm_provider
         self.log = get_logger()
         self._analysis_count = 0
 
@@ -697,6 +700,49 @@ class AIDriftDetector:
             "anomalous_types": self.anomaly_scanner.scan_types(),
         }
 
+    def analyze_drift_semantic(self, drifts: List[DriftEvent]) -> str:
+        """Use LLM to describe drift patterns in natural language
+
+        Args:
+            drifts: List of drift events to analyze
+
+        Returns:
+            Natural language analysis string, or empty string if no LLM provider
+        """
+        if not self.llm_provider:
+            return ""
+
+        try:
+            drift_summary = "\n".join(
+                f"- [{d.severity.value}] {d.drift_type.value}: {d.description[:120]}"
+                for d in drifts[-20:]
+            )
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a drift analysis assistant. Analyze the following "
+                        "drift events from a state machine pipeline and produce a concise "
+                        "natural language summary of patterns, root causes, and recommendations."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Analyze these {len(drifts)} drift events:\n\n{drift_summary}\n\n"
+                        "Provide a brief analysis of patterns found, likely root causes, "
+                        "and recommended actions."
+                    ),
+                },
+            ]
+            result = self.llm_provider.complete(
+                messages, temperature=0.3, max_tokens=500
+            )
+            return result.get("content", "")
+        except Exception as e:
+            self.log.warning("LLM drift analysis failed: %s", e)
+            return ""
+
     def generate_report(self) -> Dict[str, Any]:
         """Generate comprehensive AI drift report"""
         trends = self.analyze_trends()
@@ -724,6 +770,10 @@ class AIDriftDetector:
             "anomalies": anomalies,
             "degrading_trends": degrading_trends,
             "stable_trends": total_trends - degrading_trends,
+            "ai_analysis": (
+                self.analyze_drift_semantic(self.collector._events)
+                if self.llm_provider else ""
+            ),
         }
 
     @property

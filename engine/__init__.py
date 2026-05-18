@@ -11,7 +11,7 @@ __version__ = "1.3.0"
 __author__ = "Yunus Güngör"
 __license__ = "MIT"
 
-from .config import ProdinamikConfig
+from .config import ProdinamikConfig, LLMConfig
 from .runtime import AsyncEngine, RuntimeConfig, LifecycleHooks, run_engine
 from .engine import ProdinamikEngine
 from .log import setup as setup_logging, get_logger
@@ -79,9 +79,22 @@ from .skillforge import AutoSkillForge, SkillDraft
 from .recommend import AIRecommender, Recommendation
 from .autofix import AutoRemediator, FailureSignature, FailureClass, RemediationPlan
 
+# ── LLM & Agent Plugin Infrastructure ──
+from .llm_base import (
+    LLMProviderPlugin,
+    LLMProviderConfig,
+    LLMProviderError,
+    LLMProviderAuthError,
+    LLMProviderRateLimitError,
+    LLMProviderTimeoutError,
+)
+from .llm_registry import LLMProviderRegistry, LLMUsageStats
+from .agent_base import AgentPlugin, AgentStep, AgentResult
+
 __all__ = [
     "ProdinamikEngine",
     "ProdinamikConfig",
+    "LLMConfig",
     "ProductProfile",
     "StateMachine",
     "StateMachineConfig",
@@ -181,4 +194,16 @@ __all__ = [
     "FailureSignature",
     "FailureClass",
     "RemediationPlan",
+    # LLM & Agent Plugin Infrastructure
+    "LLMProviderPlugin",
+    "LLMProviderConfig",
+    "LLMProviderError",
+    "LLMProviderAuthError",
+    "LLMProviderRateLimitError",
+    "LLMProviderTimeoutError",
+    "LLMProviderRegistry",
+    "LLMUsageStats",
+    "AgentPlugin",
+    "AgentStep",
+    "AgentResult",
 ]

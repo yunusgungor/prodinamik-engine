@@ -96,6 +96,7 @@ class CategorizedCLI(click.Group):
         ("🌐  DISTRIBUTION", ["raft"]),
         ("🧪  QUALITY", ["chaos"]),
         ("🔌  EXTENSIONS", ["plugin", "ai"]),
+        ("🤖  AI PROVIDERS", ["llm"]),
     ]
 
     def format_commands(self, ctx, formatter):
@@ -1144,6 +1145,91 @@ def ai_status():
     click.echo(f"   Promotable: {ss['promotable']}")
     click.echo(f"{'─'*50}")
     click.echo("   ⚡ Usage: prodinamik ai <detect|predict|recommend>")
+
+
+# ── LLM Provider Commands ─────────────────────
+
+
+@cli.group()
+def llm():
+    """Manage LLM providers"""
+    pass
+
+
+@llm.command("list")
+def llm_list():
+    """List registered LLM providers"""
+    from .llm_registry import LLMProviderRegistry
+
+    registry = LLMProviderRegistry.get_instance()
+    providers = registry.list_providers()
+
+    if not providers:
+        click.echo("No LLM providers registered.")
+        click.echo("")
+        click.echo("   📋 Discovered LLM plugins:")
+        click.echo("      prodinamik.llm.openai")
+        click.echo("      prodinamik.llm.anthropic")
+        click.echo("      prodinamik.llm.ollama")
+        click.echo("")
+        click.echo("   Enable one:")
+        click.echo("      prodinamik plugin enable prodinamik.llm.openai")
+        click.echo("      prodinamik llm list")
+        return
+
+    click.echo("🤖 Registered LLM Providers:")
+    click.echo(f"   {'ID':25s} {'Models':40s} {'Default':10s}")
+    click.echo(f"   {'─'*25} {'─'*40} {'─'*10}")
+    for p in providers:
+        default_mark = "✅" if p["default"] else ""
+        models_str = ", ".join(p["models"][:3]) if p["models"] else "—"
+        click.echo(f"   {p['id']:25s} {models_str:40s} {default_mark:10s}")
+
+
+@llm.command("health")
+def llm_health():
+    """Check LLM provider health"""
+    from .llm_registry import LLMProviderRegistry
+
+    registry = LLMProviderRegistry.get_instance()
+    health = registry.health()
+
+    if not health:
+        click.echo("No LLM providers registered.")
+        return
+
+    click.echo("🏥 LLM Provider Health:")
+    click.echo(f"   {'Provider':25s} {'Status':10s} {'Default Model':20s}")
+    click.echo(f"   {'─'*25} {'─'*10} {'─'*20}")
+    for pid, info in health.items():
+        status = info.get("status", "unknown")
+        icon = "✅" if status == "ok" else "❌"
+        model = info.get("default_model", "—")
+        click.echo(f"   {icon} {pid:23s} {status:10s} {model:20s}")
+
+
+@llm.command("stats")
+def llm_stats():
+    """Show LLM usage statistics"""
+    from .llm_registry import LLMProviderRegistry
+
+    registry = LLMProviderRegistry.get_instance()
+    stats = registry.usage_stats()
+
+    if not stats:
+        click.echo("No LLM usage recorded yet.")
+        return
+
+    click.echo("📊 LLM Usage Statistics:")
+    for pid, s in stats.items():
+        click.echo(f"\n  🤖 {pid}:")
+        click.echo(f"     Total calls:          {s['total_calls']}")
+        click.echo(f"     Failed calls:         {s['failed_calls']}")
+        click.echo(f"     Prompt tokens:        {s['total_prompt_tokens']}")
+        click.echo(f"     Completion tokens:    {s['total_completion_tokens']}")
+        click.echo(f"     Last call:            {s['last_call'] or 'never'}")
+        if s.get("last_error"):
+            click.echo(f"     ⚠️  Last error:  {s['last_error']}")
 
 
 # ──────────────────────────────────────────────

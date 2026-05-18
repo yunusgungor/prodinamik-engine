@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .log import get_logger
+from .llm_base import LLMProviderPlugin
 from .aidetect import (
     AIDriftDetector,
     DriftType,
@@ -102,9 +103,11 @@ class AutoSkillForge:
         forge.save_skill(drafts[0])
     """
 
-    def __init__(self, detector: AIDriftDetector, output_dir: str = SKILLS_BASE_DIR):
+    def __init__(self, detector: AIDriftDetector, output_dir: str = SKILLS_BASE_DIR,
+                 llm_provider: Optional[LLMProviderPlugin] = None):
         self.detector = detector
         self.output_dir = output_dir
+        self.llm_provider = llm_provider
         self.log = get_logger()
         self._fix_stats: Dict[str, SkillFixStats] = {}
         os.makedirs(output_dir, exist_ok=True)
@@ -131,7 +134,10 @@ class AutoSkillForge:
         name = candidate.suggested_skill_name
         drift_type = candidate.drift_type
 
-        # Frontmatter
+        if self.llm_provider:
+            return self._create_skill_draft_ai(candidate)
+
+        # Template-based fallback
         frontmatter = (
             f"---\n"
             f"name: {name}\n"
@@ -185,6 +191,63 @@ class AutoSkillForge:
         return SkillDraft(
             name=name,
             description=candidate.recommendation,
+            content=content,
+            drift_type=drift_type,
+            confidence=candidate.confidence,
+            test_content=test_content,
+            skill_path=skill_path,
+            test_path=test_path,
+        )
+
+    def _create_skill_draft_ai(self, candidate: EmergenceCandidate) -> SkillDraft:
+        """Create skill draft using LLM for context-aware content generation"""
+        name = candidate.suggested_skill_name
+        drift_type = candidate.drift_type
+
+        try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a skill generation assistant. Given a drift pattern "
+                        "candidate, generate a complete SKILL.md file with:\n"
+                        "1. YAML frontmatter (name, description, version, tier, drift_type)\n"
+                        "2. Description section explaining the pattern\n"
+                        "3. Detection rules section\n"
+                        "4. Fix steps section\n"
+                        "5. Verification steps section\n"
+                        "Use markdown format."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Generate a skill for this emergence candidate:\n\n"
+                        f"Name: {name}\n"
+                        f"Drift Type: {drift_type.value}\n"
+                        f"Description: {candidate.description}\n"
+                        f"Occurrence Count: {candidate.occurrence_count}\n"
+                        f"Affected Runs: {candidate.affected_runs}\n"
+                        f"Confidence: {candidate.confidence:.0%}\n\n"
+                        f"Generate the full SKILL.md content with frontmatter and sections."
+                    ),
+                },
+            ]
+            result = self.llm_provider.complete(
+                messages, temperature=0.7, max_tokens=1000
+            )
+            content = result.get("content", "")
+        except Exception as e:
+            self.log.warning("LLM skill generation failed, using template: %s", e)
+            return self._create_skill_draft(candidate)
+
+        skill_path = os.path.join(self.output_dir, name, "SKILL.md")
+        test_path = os.path.join(self.output_dir, name, "test_skill.py")
+        test_content = self._generate_test(name, drift_type)
+
+        return SkillDraft(
+            name=name,
+            description=candidate.description,
             content=content,
             drift_type=drift_type,
             confidence=candidate.confidence,

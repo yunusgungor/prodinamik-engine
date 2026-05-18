@@ -10,6 +10,8 @@ from typing import List, Optional, Dict, Any
 import os
 import yaml
 
+from .llm_base import LLMProviderConfig
+
 
 # ──────────────────────────────────────────────
 # Config Dataclass
@@ -46,6 +48,16 @@ class StateMachineConfig:
 
 
 @dataclass
+class LLMConfig:
+    """LLM provider configuration"""
+    enabled: bool = False
+    default_provider: str = ""
+    providers: Dict[str, LLMProviderConfig] = field(default_factory=dict)
+    max_retries: int = 3
+    fallback_enabled: bool = True
+
+
+@dataclass
 class LoggingConfig:
     level: str = "INFO"
     format: str = "json"  # "json" | "text"
@@ -61,6 +73,7 @@ class ProdinamikConfig:
     budget: BudgetDefaults = field(default_factory=BudgetDefaults)
     event_store: EventStoreConfig = field(default_factory=EventStoreConfig)
     state_machine: StateMachineConfig = field(default_factory=StateMachineConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
     profiles: List[str] = field(default_factory=lambda: [
         "content", "software", "research", "design",
     ])
@@ -121,6 +134,27 @@ class ProdinamikConfig:
                 cfg.event_store.compaction_batch = es["compaction_batch"]
         if "profiles" in data:
             cfg.profiles = data["profiles"]
+        if "llm" in data:
+            llm = data["llm"]
+            if "enabled" in llm:
+                cfg.llm.enabled = llm["enabled"]
+            if "default_provider" in llm:
+                cfg.llm.default_provider = llm["default_provider"]
+            if "max_retries" in llm:
+                cfg.llm.max_retries = llm["max_retries"]
+            if "fallback_enabled" in llm:
+                cfg.llm.fallback_enabled = llm["fallback_enabled"]
+            if "providers" in llm:
+                for pid, pcfg in llm["providers"].items():
+                    cfg.llm.providers[pid] = LLMProviderConfig(
+                        api_key=pcfg.get("api_key", ""),
+                        base_url=pcfg.get("base_url", ""),
+                        model=pcfg.get("model", ""),
+                        temperature=pcfg.get("temperature", 0.7),
+                        max_tokens=pcfg.get("max_tokens", 2048),
+                        timeout=pcfg.get("timeout", 60),
+                        extra=pcfg.get("extra", {}),
+                    )
         return cfg
 
     @staticmethod
@@ -170,6 +204,22 @@ class ProdinamikConfig:
             "event_store": {
                 "retention_days": self.event_store.retention_days,
                 "compaction_batch": self.event_store.compaction_batch,
+            },
+            "llm": {
+                "enabled": self.llm.enabled,
+                "default_provider": self.llm.default_provider,
+                "max_retries": self.llm.max_retries,
+                "fallback_enabled": self.llm.fallback_enabled,
+                "providers": {
+                    pid: {
+                        "base_url": p.base_url,
+                        "model": p.model,
+                        "temperature": p.temperature,
+                        "max_tokens": p.max_tokens,
+                        "timeout": p.timeout,
+                    }
+                    for pid, p in self.llm.providers.items()
+                },
             },
             "profiles": self.profiles,
         }
