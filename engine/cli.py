@@ -1884,5 +1884,134 @@ def coordinator_nodes():
     asyncio.run(_show())
 
 
+# ──────────────────────────────────────────────
+# Human Loop CLI
+# ──────────────────────────────────────────────
+
+
+@cli.group()
+def human():
+    """Human Loop oversight commands"""
+    pass
+
+
+@human.command("approvals")
+def human_approvals():
+    """List pending approval requests"""
+    import asyncio
+    from .agent_runtime import ApprovalGate
+
+    gate = ApprovalGate()
+    paused = gate.get_paused()
+
+    click.echo(f"\n📋 Pending Approvals ({len(paused)})")
+    click.echo("─" * 70)
+
+    if not paused:
+        click.echo("No pending approvals.")
+        return
+
+    for p in paused:
+        click.echo(f"🔴 {p.task_id}")
+        click.echo(f"   Reason: {p.reason.value}")
+        click.echo(f"   Goal:   {p.goal[:60]}..." if len(p.goal) > 60 else f"   Goal:   {p.goal}")
+        click.echo(f"   Age:    {p.age_seconds:.0f}s")
+        click.echo()
+
+
+@human.command("audit")
+@click.option("--limit", "-l", default=20, help="Number of entries")
+def human_audit(limit):
+    """Show approval audit log"""
+    from .agent_runtime import ApprovalGate
+
+    gate = ApprovalGate()
+    log = gate.get_audit_log(limit)
+
+    click.echo(f"\n📜 Approval Audit Log ({len(log)} entries)")
+    click.echo("─" * 70)
+
+    if not log:
+        click.echo("No audit entries.")
+        return
+
+    for entry in log:
+        click.echo(f"[{entry['timestamp'][:19]}] {entry['action'].upper()}")
+        click.echo(f"   Task: {entry['task_id']} | User: {entry['user']}")
+        if entry['detail']:
+            click.echo(f"   Note: {entry['detail'][:80]}")
+        click.echo()
+
+
+@human.command("budget")
+def human_budget():
+    """Show budget status"""
+    from .agent_runtime import BudgetController, BudgetThreshold
+
+    bc = BudgetController(BudgetThreshold(hourly_usd=10.0, daily_usd=50.0))
+    stats = bc.stats
+
+    click.echo(f"\n💰 Budget Status")
+    click.echo("─" * 50)
+    click.echo(f"Level:        {stats['level'].upper()}")
+    click.echo(f"Paused:       {'✅' if not stats['paused'] else '🔴 Yes'}")
+    click.echo(f"Total Cost:   ${stats['total_cost']:.4f}")
+    click.echo(f"Hourly Cost:  ${stats['hourly_cost']:.4f} / ${stats['limit_hourly']:.2f}")
+    click.echo(f"Daily Cost:   ${stats['daily_cost']:.4f} / ${stats['limit_daily']:.2f}")
+    click.echo(f"LLM Calls:    {stats['total_llm_calls']}")
+    click.echo(f"Tool Calls:   {stats['total_tool_calls']}")
+    if stats['pause_reason']:
+        click.echo(f"Reason:       {stats['pause_reason']}")
+
+
+@human.command("dashboard")
+def human_dashboard():
+    """Open oversight dashboard URL"""
+    click.echo("\n📊 Oversight Dashboard")
+    click.echo("─" * 50)
+    click.echo("Start the HTTP server with: prodinamik serve")
+    click.echo("Then open: http://localhost:PORT/api/v1/human/dashboard")
+
+
+@human.command("approve")
+@click.argument("task_id")
+@click.option("--user", "-u", default="admin", help="Approver user ID")
+@click.option("--feedback", "-f", default="", help="Approval feedback")
+def human_approve(task_id, user, feedback):
+    """Approve a paused task"""
+    import asyncio
+    from .agent_runtime import ApprovalGate
+
+    async def _approve():
+        gate = ApprovalGate()
+        ok = await gate.approve_task(task_id, user, feedback)
+        if ok:
+            click.echo(f"✅ Task approved: {task_id}")
+        else:
+            click.echo(f"❌ Task not found: {task_id}")
+
+    asyncio.run(_approve())
+
+
+@human.command("reject")
+@click.argument("task_id")
+@click.option("--user", "-u", default="admin", help="Reviewer user ID")
+@click.option("--feedback", "-f", default="Rejected", help="Rejection feedback")
+def human_reject(task_id, user, feedback):
+    """Reject a paused task"""
+    import asyncio
+    from .agent_runtime import ApprovalGate
+
+    async def _reject():
+        gate = ApprovalGate()
+        ok = await gate.reject_task(task_id, user, feedback)
+        if ok:
+            click.echo(f"✅ Task rejected: {task_id}")
+        else:
+            click.echo(f"❌ Task not found: {task_id}")
+
+    asyncio.run(_reject())
+
+
 if __name__ == "__main__":
     cli()

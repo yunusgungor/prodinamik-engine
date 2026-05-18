@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prodinamik Engine — Oversight Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --blue: #58a6ff;
+    --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 20px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  .subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 12px; }
+  .stat-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { color: var(--text-muted); }
+  .stat-value { font-weight: 600; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    font-size: 11px; font-weight: 600;
+  }
+  .badge-norm { background: #1b3a2b; color: var(--green); }
+  .badge-warn { background: #3d2e00; color: var(--yellow); }
+  .badge-crit { background: #3d1114; color: var(--red); }
+  .badge-exh  { background: #4a0000; color: var(--red); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 6px; border-bottom: 2px solid var(--border); color: var(--text-muted); font-size: 11px; text-transform: uppercase; }
+  td { padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  .action-btn {
+    background: var(--blue); color: #fff; border: none;
+    padding: 4px 12px; border-radius: 4px; cursor: pointer;
+    font-size: 12px; font-weight: 500;
+  }
+  .action-btn.reject { background: var(--red); }
+  .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .empty { color: var(--text-muted); font-style: italic; font-size: 13px; padding: 12px 0; }
+  .error-state { color: var(--red); font-size: 13px; padding: 8px 0; }
+  .loading { color: var(--text-muted); font-size: 13px; }
+  #toast {
+    position: fixed; bottom: 20px; right: 20px;
+    background: var(--card); border: 1px solid var(--border);
+    padding: 12px 20px; border-radius: 8px; font-size: 13px;
+    display: none; z-index: 100;
+  }
+  .refresh-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 16px;
+  }
+  .refresh-bar button {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); padding: 6px 16px;
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  .refresh-bar button:hover { background: var(--border); }
+  .fullwidth { grid-column: 1 / -1; }
+  .audit-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>🔍 Oversight Dashboard</h1>
+<p class="subtitle">Human-in-the-loop approval gate, budget monitor & audit trail</p>
+
+<div class="refresh-bar">
+  <span id="last-updated" class="loading">Loading...</span>
+  <button onclick="refreshAll()">↻ Refresh</button>
+</div>
+
+<div class="grid">
+  <!-- Budget Card -->
+  <div class="card" id="budget-card">
+    <h2>💰 Budget Status</h2>
+    <div id="budget-content"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Stats Card -->
+  <div class="card" id="stats-card">
+    <h2>📊 Human Loop Stats</h2>
+    <div id="stats-content"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Approvals Card -->
+  <div class="card fullwidth" id="approvals-card">
+    <h2>⏳ Pending Approvals</h2>
+    <div id="approvals-content"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Audit Card -->
+  <div class="card fullwidth" id="audit-card">
+    <h2>📋 Audit Trail</h2>
+    <div id="audit-content"><div class="loading">Loading...</div></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API_BASE = '/api/v1/human';
+
+async function api(path, opts = {}) {
+  const res = await fetch(API_BASE + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+}
+
+function showToast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.style.display = 'block';
+  el.style.borderColor = type === 'error' ? 'var(--red)' : 'var(--green)';
+  el.textContent = msg;
+  setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+async function approveTask(taskId) {
+  try {
+    const feedback = prompt('Feedback (optional):', '');
+    await api('/approve', {
+      method: 'POST',
+      body: JSON.stringify({ task_id: taskId, feedback: feedback || '' }),
+    });
+    showToast(`Task ${taskId} approved`);
+    refreshAll();
+  } catch (e) {
+    showToast(`Approve failed: ${e.message}`, 'error');
+  }
+}
+
+async function rejectTask(taskId) {
+  try {
+    const feedback = prompt('Rejection reason:', 'Rejected by operator');
+    await api('/reject', {
+      method: 'POST',
+      body: JSON.stringify({ task_id: taskId, feedback: feedback || 'Rejected' }),
+    });
+    showToast(`Task ${taskId} rejected`);
+    refreshAll();
+  } catch (e) {
+    showToast(`Reject failed: ${e.message}`, 'error');
+  }
+}
+
+function budgetBadge(level) {
+  const map = { normal: 'norm', warning: 'warn', critical: 'crit', exhausted: 'exh' };
+  return `<span class="badge badge-${map[level] || 'norm'}">${level}</span>`;
+}
+
+async function loadBudget() {
+  const el = document.getElementById('budget-content');
+  try {
+    const data = await api('/budget');
+    if (!data.enabled) {
+      el.innerHTML = '<div class="empty">Budget controller not enabled</div>';
+      return;
+    }
+    el.innerHTML = `
+      <div class="stat-row"><span class="stat-label">Level</span><span class="stat-value">${budgetBadge(data.level)}</span></div>
+      <div class="stat-row"><span class="stat-label">Total Cost</span><span class="stat-value">$${data.total_cost || 0}</span></div>
+      <div class="stat-row"><span class="stat-label">Hourly Cost</span><span class="stat-value">$${data.hourly_cost || 0} / $${data.limit_hourly || 0}</span></div>
+      <div class="stat-row"><span class="stat-label">Daily Cost</span><span class="stat-value">$${data.daily_cost || 0} / $${data.limit_daily || 0}</span></div>
+      <div class="stat-row"><span class="stat-label">LLM Calls</span><span class="stat-value">${data.total_llm_calls || 0}</span></div>
+      <div class="stat-row"><span class="stat-label">Tool Calls</span><span class="stat-value">${data.total_tool_calls || 0}</span></div>
+      <div class="stat-row"><span class="stat-label">Active Tasks</span><span class="stat-value">${data.active_tasks || 0}</span></div>
+      ${data.paused ? `<div class="stat-row"><span class="stat-label">⚠ Paused</span><span class="stat-value" style="color:var(--red)">${data.pause_reason || 'Yes'}</span></div>` : ''}
+    `;
+  } catch (e) {
+    el.innerHTML = `<div class="error-state">Failed to load budget: ${e.message}</div>`;
+  }
+}
+
+async function loadStats() {
+  const el = document.getElementById('stats-content');
+  try {
+    const data = await api('/approvals');
+    el.innerHTML = `
+      <div class="stat-row"><span class="stat-label">Total Pending</span><span class="stat-value">${data.total_pending}</span></div>
+      <div class="stat-row"><span class="stat-label">Human Loop</span><span class="stat-value">${data.human_loop_pending.length}</span></div>
+      <div class="stat-row"><span class="stat-label">Approval Gate</span><span class="stat-value">${data.approval_gate_pending.length}</span></div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<div class="error-state">Failed to load: ${e.message}</div>`;
+  }
+}
+
+async function loadApprovals() {
+  const el = document.getElementById('approvals-content');
+  try {
+    const data = await api('/approvals');
+    const all = [...data.human_loop_pending, ...data.approval_gate_pending];
+    if (all.length === 0) {
+      el.innerHTML = '<div class="empty">No pending approvals</div>';
+      return;
+    }
+    let html = `<table><thead><tr>
+      <th>Task ID</th><th>Source</th><th>Reason</th><th>Age</th><th>Error</th><th>Actions</th>
+    </tr></thead><tbody>`;
+    for (const item of data.human_loop_pending) {
+      html += `<tr>
+        <td><code>${item.id}</code></td>
+        <td>Escalation</td>
+        <td>${item.reason}</td>
+        <td>${Math.round(item.age_seconds)}s</td>
+        <td class="audit-cell">${item.error || '-'}</td>
+        <td>
+          <button class="action-btn" onclick="approveTask('${item.id}')">Approve</button>
+          <button class="action-btn reject" onclick="rejectTask('${item.id}')">Reject</button>
+        </td>
+      </tr>`;
+    }
+    for (const item of data.approval_gate_pending) {
+      html += `<tr>
+        <td><code>${item.task_id}</code></td>
+        <td>Paused</td>
+        <td>${item.reason}</td>
+        <td>${Math.round(item.age_seconds)}s</td>
+        <td class="audit-cell">${item.error || '-'}</td>
+        <td>
+          <button class="action-btn" onclick="approveTask('${item.task_id}')">Approve</button>
+          <button class="action-btn reject" onclick="rejectTask('${item.task_id}')">Reject</button>
+        </td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="error-state">Failed to load approvals: ${e.message}</div>`;
+  }
+}
+
+async function loadAudit() {
+  const el = document.getElementById('audit-content');
+  try {
+    const data = await api('/audit');
+    if (data.count === 0) {
+      el.innerHTML = '<div class="empty">No audit entries yet</div>';
+      return;
+    }
+    let html = `<table><thead><tr>
+      <th>Timestamp</th><th>Action</th><th>Task ID</th><th>User</th><th>Detail</th>
+    </tr></thead><tbody>`;
+    for (const entry of data.entries) {
+      html += `<tr>
+        <td style="white-space:nowrap">${entry.timestamp || '-'}</td>
+        <td><span class="badge badge-norm">${entry.action}</span></td>
+        <td><code>${entry.task_id}</code></td>
+        <td>${entry.user}</td>
+        <td class="audit-cell">${entry.detail || ''}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="error-state">Failed to load audit: ${e.message}</div>`;
+  }
+}
+
+function refreshAll() {
+  document.getElementById('last-updated').textContent = 'Refreshing...';
+  Promise.all([loadBudget(), loadStats(), loadApprovals(), loadAudit()])
+    .then(() => {
+      document.getElementById('last-updated').textContent =
+        'Last updated: ' + new Date().toLocaleTimeString();
+    });
+}
+
+refreshAll();
+setInterval(refreshAll, 30000);
+</script>
+</body>
+</html>

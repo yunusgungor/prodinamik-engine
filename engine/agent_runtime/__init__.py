@@ -2,6 +2,7 @@
 
 Phase 1: Runtime Layer — Warm Agent, Loop Engine, Tools, Context, Memory
 Phase 2: Orchestration Layer — Coordinator, Task Queue, Scheduler, Registry
+Phase 3: Human Loop Layer — Approval Gate, Budget Controller, Human Loop
 """
 
 from .supervisor import (
@@ -57,6 +58,19 @@ from .human_loop import (
     EscalationReason,
     ReviewStatus,
 )
+from .approval_gate import (
+    ApprovalGate,
+    PausedTask,
+    PauseReason,
+    ApprovalStatus,
+    ActionLog,
+)
+from .budget_controller import (
+    BudgetController,
+    BudgetThreshold,
+    BudgetLevel,
+    TaskCostRecord,
+)
 from .global_memory import (
     GlobalMemory,
     CRDTEntry,
@@ -100,6 +114,16 @@ __all__ = [
     "EscalatedItem",
     "EscalationReason",
     "ReviewStatus",
+    # Phase 3: Human Loop
+    "ApprovalGate",
+    "PausedTask",
+    "PauseReason",
+    "ApprovalStatus",
+    "ActionLog",
+    "BudgetController",
+    "BudgetThreshold",
+    "BudgetLevel",
+    "TaskCostRecord",
     "GlobalMemory",
     "CRDTEntry",
 ]

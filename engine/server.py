@@ -29,6 +29,9 @@ class ProdinamikHandler(BaseHTTPRequestHandler):
     engine = None
     auth_manager = None
     rate_limiter = None
+    human_loop = None
+    approval_gate = None
+    budget_controller = None
     server_started_at = 0.0
 
     def do_GET(self):
@@ -126,6 +129,23 @@ class ProdinamikHandler(BaseHTTPRequestHandler):
                 self._api_audit_query(auth_result)
             elif path == "/api/v1/metrics":
                 self._handle_metrics()
+            # ── Human Loop API ──
+            elif path == "/api/v1/human/approvals" and self.command == "GET":
+                self._api_human_approvals(auth_result)
+            elif path == "/api/v1/human/audit" and self.command == "GET":
+                self._api_human_audit(auth_result)
+            elif path == "/api/v1/human/budget" and self.command == "GET":
+                self._api_human_budget(auth_result)
+            elif path == "/api/v1/human/dashboard" and self.command == "GET":
+                self._api_human_dashboard(auth_result)
+            elif path == "/api/v1/human/approve" and self.command == "POST":
+                self._api_human_approve(auth_result)
+            elif path == "/api/v1/human/reject" and self.command == "POST":
+                self._api_human_reject(auth_result)
+            elif path == "/api/v1/human/pause" and self.command == "POST":
+                self._api_human_pause(auth_result)
+            elif path == "/api/v1/human/budget/reset" and self.command == "POST":
+                self._api_human_budget_reset(auth_result)
             else:
                 self._json_response(404, {"error": f"API endpoint not found: {path}"})
         except Exception as e:
@@ -203,6 +223,269 @@ class ProdinamikHandler(BaseHTTPRequestHandler):
         })
 
     # ──────────────────────────────────────
+    # Human Loop API Methods
+    # ──────────────────────────────────────
+
+    def _read_json_body(self) -> dict:
+        """Read and parse JSON request body"""
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length == 0:
+            return {}
+        body = self.rfile.read(content_length)
+        return json.loads(body.decode("utf-8"))
+
+    def _api_human_approvals(self, auth_result):
+        """GET /api/v1/human/approvals — list pending approvals"""
+        result = {
+            "human_loop_pending": [],
+            "approval_gate_pending": [],
+        }
+        if self.human_loop:
+            pending = self.human_loop.get_pending()
+            result["human_loop_pending"] = [
+                {
+                    "id": item.id,
+                    "task_id": item.task_id,
+                    "reason": item.reason.value,
+                    "error": item.error,
+                    "goal": item.goal,
+                    "status": item.status.value,
+                    "created_at": item.created_at,
+                    "age_seconds": item.age_seconds,
+                }
+                for item in pending
+            ]
+        if self.approval_gate:
+            paused = self.approval_gate.get_paused()
+            result["approval_gate_pending"] = [
+                {
+                    "task_id": p.task_id,
+                    "reason": p.reason.value,
+                    "goal": p.goal,
+                    "error": p.error,
+                    "status": p.approval_status.value,
+                    "paused_at": p.paused_at,
+                    "age_seconds": p.age_seconds,
+                    "is_stale": p.is_stale,
+                }
+                for p in paused
+            ]
+        result["total_pending"] = (
+            len(result["human_loop_pending"])
+            + len(result["approval_gate_pending"])
+        )
+        self._json_response(200, result)
+
+    def _api_human_audit(self, auth_result):
+        """GET /api/v1/human/audit — get approval gate audit log"""
+        import urllib.parse
+        params = urllib.parse.parse_qs(
+            self.path.split("?")[1] if "?" in self.path else ""
+        )
+        limit = int(params.get("limit", [50])[0])
+
+        entries = []
+        if self.approval_gate:
+            entries = self.approval_gate.get_audit_log(limit=limit)
+        self._json_response(200, {
+            "entries": entries,
+            "count": len(entries),
+        })
+
+    def _api_human_budget(self, auth_result):
+        """GET /api/v1/human/budget — get budget status"""
+        if not self.budget_controller:
+            self._json_response(200, {"enabled": False})
+            return
+        stats = self.budget_controller.stats
+        stats["enabled"] = True
+        # Also include task-level breakdown
+        task_costs = {}
+        for task_id, record in self.budget_controller._task_costs.items():
+            task_costs[task_id] = {
+                "cost_usd": record.cost_usd,
+                "llm_calls": record.llm_calls,
+                "tool_calls": record.tool_calls,
+                "cost_per_call": record.cost_per_call,
+            }
+        stats["task_costs"] = task_costs
+        self._json_response(200, stats)
+
+    def _api_human_dashboard(self, auth_result):
+        """GET /api/v1/human/dashboard — serve oversight dashboard HTML"""
+        dashboard_path = Path(__file__).parent / "agent_runtime" / "templates" / "oversight_dashboard.html"
+        if not dashboard_path.exists():
+            self._text_response(404, "Dashboard template not found")
+            return
+        html = dashboard_path.read_text(encoding="utf-8")
+        self._text_response(200, html, content_type="text/html; charset=utf-8")
+
+    def _api_human_approve(self, auth_result):
+        """POST /api/v1/human/approve — approve a task {task_id, user_id, feedback}"""
+        data = self._read_json_body()
+        task_id = data.get("task_id", "")
+        user_id = data.get("user_id", auth_result.name if auth_result.name else "admin")
+        feedback = data.get("feedback", "")
+
+        if not task_id:
+            self._json_response(400, {"error": "Missing required field: task_id"})
+            return
+
+        # Try approval_gate first (task-level paused tasks), then human_loop (escalation)
+        approved = False
+        detail = ""
+        if self.approval_gate:
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    result = loop.run_until_complete(
+                        self.approval_gate.approve_task(task_id, user_id, feedback)
+                    )
+                else:
+                    # Fallback if no running loop
+                    result = self.approval_gate.approve_task(task_id, user_id, feedback)
+                    if asyncio.iscoroutine(result):
+                        result = asyncio.run(result)
+            except RuntimeError:
+                # No event loop in this thread — create one
+                result = asyncio.run(
+                    self.approval_gate.approve_task(task_id, user_id, feedback)
+                )
+            if result:
+                approved = True
+                detail = "approval_gate"
+
+        if not approved and self.human_loop:
+            # Also try human_loop escalation queue
+            hl_result = self.human_loop.approve(task_id, user_id, feedback)
+            if hl_result:
+                approved = True
+                detail = "human_loop"
+
+        if approved:
+            self._json_response(200, {
+                "status": "approved",
+                "task_id": task_id,
+                "approved_by": user_id,
+                "source": detail,
+            })
+        else:
+            self._json_response(404, {
+                "error": "Task not found in pending queue",
+                "task_id": task_id,
+            })
+
+    def _api_human_reject(self, auth_result):
+        """POST /api/v1/human/reject — reject a task {task_id, user_id, feedback}"""
+        data = self._read_json_body()
+        task_id = data.get("task_id", "")
+        user_id = data.get("user_id", auth_result.name if auth_result.name else "admin")
+        feedback = data.get("feedback", "Rejected")
+
+        if not task_id:
+            self._json_response(400, {"error": "Missing required field: task_id"})
+            return
+
+        rejected = False
+        detail = ""
+        if self.approval_gate:
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    result = loop.run_until_complete(
+                        self.approval_gate.reject_task(task_id, user_id, feedback)
+                    )
+                else:
+                    result = self.approval_gate.reject_task(task_id, user_id, feedback)
+                    if asyncio.iscoroutine(result):
+                        result = asyncio.run(result)
+            except RuntimeError:
+                result = asyncio.run(
+                    self.approval_gate.reject_task(task_id, user_id, feedback)
+                )
+            if result:
+                rejected = True
+                detail = "approval_gate"
+
+        if not rejected and self.human_loop:
+            hl_result = self.human_loop.reject(task_id, user_id, feedback)
+            if hl_result:
+                rejected = True
+                detail = "human_loop"
+
+        if rejected:
+            self._json_response(200, {
+                "status": "rejected",
+                "task_id": task_id,
+                "rejected_by": user_id,
+                "source": detail,
+            })
+        else:
+            self._json_response(404, {
+                "error": "Task not found in pending queue",
+                "task_id": task_id,
+            })
+
+    def _api_human_pause(self, auth_result):
+        """POST /api/v1/human/pause — pause a task {task_id, reason}"""
+        data = self._read_json_body()
+        task_id = data.get("task_id", "")
+        reason_str = data.get("reason", "manual")
+
+        if not task_id:
+            self._json_response(400, {"error": "Missing required field: task_id"})
+            return
+
+        if not self.approval_gate:
+            self._json_response(503, {"error": "Approval gate not available"})
+            return
+
+        from .approval_gate import PauseReason
+        reason_map = {
+            "human_review": PauseReason.HUMAN_REVIEW,
+            "budget_exceeded": PauseReason.BUDGET_EXCEEDED,
+            "error_threshold": PauseReason.ERROR_THRESHOLD,
+            "manual": PauseReason.MANUAL,
+            "security": PauseReason.SECURITY,
+        }
+        reason = reason_map.get(reason_str, PauseReason.MANUAL)
+
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                result = loop.run_until_complete(
+                    self.approval_gate.pause_task(task_id, reason=reason)
+                )
+            else:
+                result = self.approval_gate.pause_task(task_id, reason=reason)
+                if asyncio.iscoroutine(result):
+                    result = asyncio.run(result)
+        except RuntimeError:
+            result = asyncio.run(
+                self.approval_gate.pause_task(task_id, reason=reason)
+            )
+
+        self._json_response(200, {
+            "status": "paused",
+            "task_id": result,
+            "reason": reason_str,
+        })
+
+    def _api_human_budget_reset(self, auth_result):
+        """POST /api/v1/human/budget/reset — reset budget tracking"""
+        if not self.budget_controller:
+            self._json_response(503, {"error": "Budget controller not available"})
+            return
+        self.budget_controller.reset()
+        self._json_response(200, {
+            "status": "reset",
+            "message": "Budget tracking has been reset",
+        })
+
+    # ──────────────────────────────────────
     # Response Helpers
     # ──────────────────────────────────────
 
@@ -257,6 +540,32 @@ class ProdinamikServer:
         self.handler_class.engine = self.engine
         self.handler_class.auth_manager = self.auth_manager
         self.handler_class.rate_limiter = self.rate_limiter
+        self.handler_class.human_loop = getattr(engine, 'human_loop', None) if engine else None
+        self.handler_class.approval_gate = getattr(engine, 'approval_gate', None) if engine else None
+        self.handler_class.budget_controller = getattr(engine, 'budget_controller', None) if engine else None
+
+        # If human loop components not on engine, create defaults
+        if engine and self.handler_class.human_loop is None:
+            try:
+                from .agent_runtime.human_loop import HumanLoopManager
+                self.handler_class.human_loop = HumanLoopManager()
+            except ImportError:
+                pass
+        if engine and self.handler_class.approval_gate is None:
+            try:
+                from .agent_runtime.approval_gate import ApprovalGate
+                self.handler_class.approval_gate = ApprovalGate(
+                    human_loop=self.handler_class.human_loop,
+                )
+            except ImportError:
+                pass
+        if engine and self.handler_class.budget_controller is None:
+            try:
+                from .agent_runtime.budget_controller import BudgetController
+                self.handler_class.budget_controller = BudgetController()
+            except ImportError:
+                pass
+
         self.handler_class.server_started_at = time.time()
 
     def start(self):
