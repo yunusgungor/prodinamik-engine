@@ -25,3 +25,9 @@
 {"ts": "2026-05-18T09:36:46.432046+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
 {"ts": "2026-05-18T09:36:48.432564+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
 {"ts": "2026-05-18T09:36:48.432850+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
+{"ts": "2026-05-18T09:49:04.679012+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T09:49:06.679456+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T09:49:06.679718+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
+{"ts": "2026-05-18T09:49:16.903281+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T09:49:18.903710+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T09:49:18.903944+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
