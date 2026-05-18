@@ -645,6 +645,161 @@ class HybridConsensusNode:
             f"{self.offline.status}"
         )
 
+    # ──────────────────────────────────────
+    # Cluster Health (Phase 5)
+    # ──────────────────────────────────────
+
+    def health(self) -> dict:
+        """Node health snapshot"""
+        return {
+            "node_id": self.raft.node_id,
+            "role": self.raft.role.value,
+            "term": self.raft.current_term,
+            "commit_index": self.raft.commit_index,
+            "log_length": len(self.raft.log),
+            "state_count": len(self.raft.state_machine),
+            "is_offline": self.offline.is_offline,
+            "pending_count": len(self.offline.pending),
+            "peers": self.raft.peers,
+        }
+
+    def is_leader(self) -> bool:
+        return self.raft.role == NodeRole.LEADER
+
+    def force_election(self) -> bool:
+        """Force leader election. Returns True if this node becomes leader."""
+        if self.raft.role != NodeRole.LEADER:
+            self.raft._start_election()
+            return self.raft.role == NodeRole.LEADER
+        return False
+
+
+# ──────────────────────────────────────────────
+# Raft Cluster (Phase 5)
+# ──────────────────────────────────────────────
+
+
+@dataclass
+class ClusterNode:
+    """Discovered cluster node"""
+    node_id: str
+    address: str = ""
+    role: str = "unknown"
+    last_seen: float = 0.0
+    healthy: bool = False
+    log_length: int = 0
+    state_count: int = 0
+
+
+class RaftCluster:
+    """Cluster management: health monitoring, node discovery, failover.
+
+    Usage:
+        cluster = RaftCluster(local_node)
+        cluster.discover_peers(["node-a", "node-b"])
+        print(cluster.health_report())
+        cluster.elect_leader()
+    """
+
+    def __init__(self, local_node: HybridConsensusNode):
+        self.local = local_node
+        self.nodes: Dict[str, ClusterNode] = {}
+        self._lock = threading.Lock()
+
+        # Register self
+        self._update_local()
+
+    def _update_local(self):
+        """Register local node"""
+        h = self.local.health()
+        self.nodes[self.local.raft.node_id] = ClusterNode(
+            node_id=h["node_id"],
+            role=h["role"],
+            last_seen=time.time(),
+            healthy=not h["is_offline"],
+            log_length=h["log_length"],
+            state_count=h["state_count"],
+        )
+
+    def discover_peers(self, peer_ids: List[str]):
+        """Register peer nodes for cluster tracking"""
+        with self._lock:
+            for pid in peer_ids:
+                if pid not in self.nodes:
+                    self.nodes[pid] = ClusterNode(
+                        node_id=pid,
+                        last_seen=time.time(),
+                    )
+
+    def update_peer(self, node_id: str, health: dict):
+        """Update peer status from heartbeat or RPC"""
+        with self._lock:
+            node = self.nodes.setdefault(node_id, ClusterNode(node_id=node_id))
+            node.role = health.get("role", node.role)
+            node.last_seen = time.time()
+            node.healthy = not health.get("is_offline", False)
+            node.log_length = health.get("log_length", 0)
+            node.state_count = health.get("state_count", 0)
+
+    def elect_leader(self) -> Optional[str]:
+        """If current leader is unhealthy, trigger election.
+
+        Returns new leader node_id, or None if local is already leader.
+        """
+        # Check if current leader is healthy
+        leader = self.get_leader()
+        if leader and leader.healthy:
+            return leader.node_id  # Already healthy
+
+        # Force local election
+        if self.local.force_election():
+            self._update_local()
+            return self.local.raft.node_id
+
+        return None
+
+    def get_leader(self) -> Optional[ClusterNode]:
+        """Get current leader node"""
+        return next((n for n in self.nodes.values() if n.role == "leader"), None)
+
+    def health_report(self) -> dict:
+        """Full cluster health report"""
+        self._update_local()
+        with self._lock:
+            leader = self.get_leader()
+            return {
+                "cluster_size": len(self.nodes),
+                "local_node": self.local.raft.node_id,
+                "local_role": self.local.raft.role.value,
+                "leader": leader.node_id if leader else None,
+                "healthy_nodes": sum(1 for n in self.nodes.values() if n.healthy),
+                "nodes": {
+                    nid: {
+                        "role": n.role,
+                        "healthy": n.healthy,
+                        "last_seen_ago": int(time.time() - n.last_seen),
+                        "log_length": n.log_length,
+                        "state_count": n.state_count,
+                    }
+                    for nid, n in sorted(self.nodes.items())
+                },
+            }
+
+    def status_text(self) -> str:
+        """Human-readable cluster status"""
+        report = self.health_report()
+        lines = [f"📡 Raft Cluster ({report['cluster_size']} nodes)"]
+        lines.append(f"   Local: {report['local_node']} ({report['local_role']})")
+        if report['leader']:
+            lines.append(f"   Leader: {report['leader']}")
+        lines.append(f"   Healthy: {report['healthy_nodes']}/{report['cluster_size']}")
+        for nid, info in report['nodes'].items():
+            health_icon = "🟢" if info['healthy'] else "🔴"
+            ago = info['last_seen_ago']
+            lines.append(f"   {health_icon} {nid} — {info['role']} ({ago}s ago, "
+                         f"log={info['log_length']}, state={info['state_count']})")
+        return "\n".join(lines)
+
 
 # ──────────────────────────────────────────────
 # Demo

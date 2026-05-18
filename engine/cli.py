@@ -18,6 +18,14 @@ Usage:
     prodinamik audit query [type]             # Query audit log
     prodinamik audit stats                    # Audit log statistics
     prodinamik audit compact                  # Compact old audit entries
+    prodinamik auth create <name>             # Create API key
+    prodinamik auth list                      # List API keys
+    prodinamik auth revoke <id>               # Revoke API key
+    prodinamik auth info <id>                 # Show key details
+    prodinamik serve [--port PORT]            # HTTP server
+    prodinamik raft status                    # Raft cluster health
+    prodinamik raft peers <ids>               # Register peers
+    prodinamik raft elect                     # Force leader election
     prodinamik version                        # Show version
 """
 
@@ -556,6 +564,194 @@ def compact(older_than: int):
         click.echo(f"✅ Compacted {count} entries older than {older_than} days")
     else:
         click.echo("No entries to compact.")
+
+
+# ──────────────────────────────────────────────
+# Phase 5: Security & Distribution Commands
+# ──────────────────────────────────────────────
+
+
+@cli.group()
+def auth():
+    """Manage API keys and authentication"""
+
+
+@auth.command()
+@click.argument("name")
+@click.option("--role", default="user", type=click.Choice(["admin", "user", "readonly"]),
+              help="Access role")
+@click.option("--expires", default=None, type=int,
+              help="Days until expiration (optional)")
+def create_key(name: str, role: str, expires: Optional[int]):
+    """Create a new API key"""
+    from .auth import AuthManager
+
+    cfg = get_config()
+    auth_dir = Path(cfg.data_dir) / "auth"
+    mgr = AuthManager(base_path=str(auth_dir))
+
+    key_id, raw_key = mgr.create_key(
+        name=name, role=role,
+        expires_in_days=expires,
+    )
+
+    click.echo(f"✅ API key created:")
+    click.echo(f"   Name:    {name}")
+    click.echo(f"   Role:    {role}")
+    click.echo(f"   Key ID:  {key_id}")
+    click.echo(f"   {'─' * 40}")
+    click.echo(f"   {raw_key}")
+    click.echo(f"   {'─' * 40}")
+    click.echo(f"   ⚠️  This key will not be shown again. Store it securely.")
+
+
+@auth.command(name="list")
+def list_keys():
+    """List all API keys"""
+    from .auth import AuthManager
+
+    cfg = get_config()
+    auth_dir = Path(cfg.data_dir) / "auth"
+    mgr = AuthManager(base_path=str(auth_dir))
+
+    keys = mgr.list_keys()
+    if not keys:
+        click.echo("No API keys found.")
+        return
+
+    click.echo(f"📋 API Keys ({len(keys)}):")
+    for k in keys:
+        status = "✅" if k["enabled"] else "❌"
+        expires = f" (expires: {k['expires_at'][:10]})" if k.get("expires_at") else ""
+        click.echo(f"   {status} {k['key_id']} — {k['name']} [{k['role']}]{expires}")
+
+
+@auth.command()
+@click.argument("key_id")
+def revoke(key_id: str):
+    """Revoke an API key"""
+    from .auth import AuthManager
+
+    cfg = get_config()
+    auth_dir = Path(cfg.data_dir) / "auth"
+    mgr = AuthManager(base_path=str(auth_dir))
+
+    if mgr.revoke_key(key_id):
+        click.echo(f"✅ Key revoked: {key_id}")
+    else:
+        click.echo(f"❌ Key not found: {key_id}")
+        sys.exit(1)
+
+
+@auth.command()
+@click.argument("key_id")
+def key_info(key_id: str):
+    """Show API key details"""
+    from .auth import AuthManager
+
+    cfg = get_config()
+    auth_dir = Path(cfg.data_dir) / "auth"
+    mgr = AuthManager(base_path=str(auth_dir))
+
+    info = mgr.get_key(key_id)
+    if not info:
+        click.echo(f"❌ Key not found: {key_id}")
+        sys.exit(1)
+
+    click.echo(f"📌 Key: {info['key_id']}")
+    click.echo(f"   Name:    {info['name']}")
+    click.echo(f"   Role:    {info['role']}")
+    click.echo(f"   Enabled: {'✅' if info['enabled'] else '❌'}")
+    click.echo(f"   Created: {info['created_at'][:19]}")
+    if info.get("expires_at"):
+        click.echo(f"   Expires: {info['expires_at'][:10]}")
+    if info.get("last_used_at"):
+        click.echo(f"   Last Used: {info['last_used_at'][:19]}")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Bind address")
+@click.option("--port", default=8080, type=int, help="Port number")
+@click.option("--blocking", is_flag=True, help="Run in foreground (blocking)")
+def serve(host: str, port: int, blocking: bool):
+    """Start HTTP server with /metrics, /healthz, /api/v1"""
+    from .server import ProdinamikServer
+
+    engine = get_engine()
+    server = ProdinamikServer(engine, host=host, port=port)
+
+    if blocking:
+        click.echo(f"🚀 HTTP server starting on http://{host}:{port} (blocking)")
+        server.start_blocking()
+    else:
+        server.start()
+        click.echo(f"🚀 HTTP server started on http://{host}:{port}")
+        click.echo(f"   Endpoints:")
+        click.echo(f"   • GET  /healthz   — Health check")
+        click.echo(f"   • GET  /metrics   — Prometheus metrics")
+        click.echo(f"   • GET  /api/v1/runs — Run management")
+        click.echo(f"   • GET  /api/v1/health — Detailed health")
+        click.echo(f"   • GET  /api/v1/profiles — Profile list")
+        click.echo(f"   • GET  /api/v1/audit — Audit log query")
+        click.echo(f"")
+        click.echo(f"   Use --blocking for foreground mode.")
+
+
+@cli.group()
+def raft():
+    """Manage Raft consensus cluster"""
+
+
+@raft.command(name="status")
+def raft_status():
+    """Show Raft cluster status"""
+    from .raft import HybridConsensusNode, RaftCluster
+
+    cfg = get_config()
+    node = HybridConsensusNode(
+        node_id="cli-node",
+        peers=[],
+        state_dir=str(Path(cfg.data_dir) / "raft"),
+    )
+    cluster = RaftCluster(node)
+    click.echo(cluster.status_text())
+
+
+@raft.command(name="peers")
+@click.argument("peer_ids", nargs=-1, required=True)
+def raft_peers(peer_ids: tuple):
+    """Register peer nodes (space-separated IDs)"""
+    from .raft import HybridConsensusNode, RaftCluster
+
+    cfg = get_config()
+    node = HybridConsensusNode(
+        node_id="cli-node",
+        peers=list(peer_ids),
+        state_dir=str(Path(cfg.data_dir) / "raft"),
+    )
+    cluster = RaftCluster(node)
+    cluster.discover_peers(list(peer_ids))
+    click.echo(f"✅ Registered {len(peer_ids)} peer(s)")
+    click.echo(cluster.status_text())
+
+
+@raft.command(name="elect")
+def raft_elect():
+    """Force leader election"""
+    from .raft import HybridConsensusNode, RaftCluster
+
+    cfg = get_config()
+    node = HybridConsensusNode(
+        node_id="cli-node",
+        state_dir=str(Path(cfg.data_dir) / "raft"),
+    )
+    cluster = RaftCluster(node)
+    result = cluster.elect_leader()
+    if result:
+        click.echo(f"✅ Leader elected: {result}")
+    else:
+        click.echo(f"⚠️  Could not elect leader (may already be one)")
+    click.echo(cluster.status_text())
 
 
 if __name__ == "__main__":
