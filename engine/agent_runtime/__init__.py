@@ -75,6 +75,10 @@ from .global_memory import (
     GlobalMemory,
     CRDTEntry,
 )
+from .coordinator_raft_bridge import (
+    CoordinatorRaftBridge,
+    BridgeState,
+)
 
 __all__ = [
     # Phase 1: Runtime
@@ -126,4 +130,7 @@ __all__ = [
     "TaskCostRecord",
     "GlobalMemory",
     "CRDTEntry",
+    # Raft-Coodinator Bridge
+    "CoordinatorRaftBridge",
+    "BridgeState",
 ]

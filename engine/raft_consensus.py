@@ -10,7 +10,7 @@ import random
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Callable, List, Optional, Dict, Any, Tuple
 
 from .raft_types import (
     NodeRole, LogEntry, NodeState, Snapshot,
@@ -119,16 +119,23 @@ class DistributedStateMachine:
         # Transitions (state machine DAG)
         self.transitions: Dict[str, List[str]] = {}
 
+        # Leader election callbacks (for CoordinatorRaftBridge)
+        self.on_leader_elected: Optional[Callable[[str], None]] = None
+        self.on_step_down: Optional[Callable[[], None]] = None
+
     def configure_transitions(self, transitions: Dict[str, List[str]]):
         self.transitions = transitions
 
     # ── Raft Core ──
 
     def become_follower(self, term: int):
+        was_leader = self.role == NodeRole.LEADER
         self.role = NodeRole.FOLLOWER
         self.current_term = term
         self.voted_for = None
         self.last_heartbeat = time.time()
+        if was_leader and self.on_step_down:
+            self.on_step_down()
 
     def become_candidate(self):
         self.role = NodeRole.CANDIDATE
@@ -145,6 +152,8 @@ class DistributedStateMachine:
     def become_leader(self):
         self.role = NodeRole.LEADER
         self._broadcast_heartbeat()
+        if self.on_leader_elected:
+            self.on_leader_elected(self.node_id)
 
     def _start_election(self):
         """Force an election cycle"""

@@ -2013,5 +2013,126 @@ def human_reject(task_id, user, feedback):
     asyncio.run(_reject())
 
 
+# ──────────────────────────────────────────────
+# Raft Coordinator Bridge CLI
+# ──────────────────────────────────────────────
+
+@cli.group()
+def bridge():
+    """Raft-Coodinator bridge management"""
+    pass
+
+
+@bridge.command("attach")
+@click.option("--raft-node", "-r", default="", help="Raft node ID")
+def bridge_attach(raft_node):
+    """Attach coordinator to Raft leader election"""
+    import asyncio
+    from .raft import HybridConsensusNode
+    from .agent_runtime import CoordinatorNode, CoordinatorConfig, CoordinatorRaftBridge
+
+    node_id = raft_node or f"bridge-{os.uname().nodename}"
+
+    # Create Raft node
+    raft = HybridConsensusNode(node_id=node_id, enable_transport=False)
+
+    # Create coordinator
+    coord_config = CoordinatorConfig(node_id=node_id)
+    coord = CoordinatorNode(coord_config)
+
+    # Create bridge
+    bridge = CoordinatorRaftBridge(raft, coord)
+    bridge.attach()
+
+    click.echo(f"✅ Bridge attached to Raft node: {node_id}")
+    click.echo(f"   State: {bridge.state.value}")
+    click.echo(f"   Raft role: {raft.raft.role.value}")
+
+    # If this node is already leader, promote immediately
+    if raft.raft.role == raft.raft.role.LEADER:
+        click.echo("   This node is the leader — promoting coordinator...")
+        asyncio.run(bridge.force_promotion())
+        click.echo(f"   Coordinator: {'ACTIVE' if bridge.is_active else 'STANDBY'}")
+
+
+@bridge.command("detach")
+def bridge_detach():
+    """Detach coordinator from Raft"""
+    click.echo("⚠️  Bridge detach happens automatically on shutdown")
+    click.echo("   Use 'prodinamik bridge status' to check current state")
+
+
+@bridge.command("status")
+@click.option("--raft-node", "-r", default="", help="Raft node ID")
+def bridge_status(raft_node):
+    """Show bridge and coordinator status"""
+    from .raft import HybridConsensusNode
+    from .agent_runtime import CoordinatorNode, CoordinatorConfig, CoordinatorRaftBridge
+
+    node_id = raft_node or f"bridge-{os.uname().nodename}"
+
+    raft = HybridConsensusNode(node_id=node_id, enable_transport=False)
+    coord_config = CoordinatorConfig(node_id=node_id)
+    coord = CoordinatorNode(coord_config)
+    bridge = CoordinatorRaftBridge(raft, coord)
+
+    click.echo(f"\n🔗 Raft-Coodinator Bridge Status")
+    click.echo("─" * 50)
+    click.echo(f"Raft node:  {node_id}")
+    click.echo(f"Raft role:  {raft.raft.role.value}")
+    click.echo(f"Bridge:     {'attached' if bridge.state.value != 'detached' else 'detached'}")
+    click.echo(f"Coordinator: {'would start on leader election' if bridge.state.value == 'standby' else bridge.state.value}")
+
+
+@bridge.command("promote")
+@click.option("--raft-node", "-r", default="", help="Raft node ID")
+def bridge_promote(raft_node):
+    """Manually promote coordinator (for testing)"""
+    import asyncio
+    from .raft import HybridConsensusNode
+    from .agent_runtime import CoordinatorNode, CoordinatorConfig, CoordinatorRaftBridge
+
+    node_id = raft_node or "test-node"
+
+    raft = HybridConsensusNode(node_id=node_id, enable_transport=False)
+    # Manually set as leader
+    raft.raft.become_leader()
+
+    coord = CoordinatorNode(CoordinatorConfig(node_id=node_id))
+    bridge = CoordinatorRaftBridge(raft, coord)
+    bridge.attach()
+
+    click.echo(f"🚀 Force promoting coordinator...")
+    asyncio.run(bridge.force_promotion())
+
+    stats = bridge.stats
+    click.echo(f"   State:      {stats['state']}")
+    click.echo(f"   Promotions: {stats['promotions']}")
+
+
+@bridge.command("demote")
+@click.option("--raft-node", "-r", default="", help="Raft node ID")
+def bridge_demote(raft_node):
+    """Manually demote coordinator (for testing)"""
+    import asyncio
+    from .raft import HybridConsensusNode
+    from .agent_runtime import CoordinatorNode, CoordinatorConfig, CoordinatorRaftBridge
+
+    node_id = raft_node or "test-node"
+
+    raft = HybridConsensusNode(node_id=node_id, enable_transport=False)
+    coord = CoordinatorNode(CoordinatorConfig(node_id=node_id))
+    bridge = CoordinatorRaftBridge(raft, coord)
+    bridge.attach()
+
+    asyncio.run(bridge.force_promotion())
+    click.echo("📉 Force demoting coordinator...")
+    asyncio.run(bridge.force_demotion())
+
+    stats = bridge.stats
+    click.echo(f"   State:     {stats['state']}")
+    click.echo(f"   Stepdowns: {stats['stepdowns']}")
+
+
 if __name__ == "__main__":
     cli()
