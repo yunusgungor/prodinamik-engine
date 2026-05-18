@@ -160,8 +160,6 @@ def test_debug_cli():
     assert "total_cost" in r
     print(f"   ✅ budget: limits displayed")
 
-    return cli
-
 
 # ────────────── Test 2: Profile Registry ──────────────
 
@@ -204,8 +202,6 @@ def test_registry():
     assert not_found is None
     print(f"   ✅ Not found: returns None")
 
-    return reg
-
 
 # ────────────── Test 3: Health Dashboard ──────────────
 
@@ -230,8 +226,6 @@ def test_health_dashboard():
 
     print(f"   ✅ Health dashboard: {len(r.split(chr(10)))} lines, "
           f"all components reporting")
-
-    return cli
 
 
 # ────────────── Test 4: Debug CLI Edge Cases ──────────────
@@ -260,8 +254,6 @@ def test_debug_edges():
     r = cli.handle("nonexistent")
     assert "Debug CLI Commands" in r
     print(f"   ✅ Unknown command: shows help")
-
-    return cli
 
 
 # ────────────── Test 5: Registry Edge Cases ──────────────
@@ -296,10 +288,8 @@ def test_registry_edges():
     print(f"   ✅ Dep graph: {len(graph['nodes'])} nodes, "
           f"{len(graph['edges'])} edges, {len(graph['conflicts'])} conflicts")
 
-    return reg
 
-
-# ────────────── Test 6: Cross-Phase Full Stack ──────────────
+# ────────────── Test 6: Full Stack Integration
 
 def test_full_stack():
     print("\n═══ Test 6: Cross-Phase Full Stack ═══")
@@ -351,8 +341,7 @@ def test_full_stack():
     print(f"   ✅ Cross-phase: Recovery → FULL + health verified")
 
     print(f"   ✅ Full stack: 6 phases verified")
-
-    return cli
+    print(f"   ✅ All 5 components working together")
 
 
 # ────────────── Main ──────────────

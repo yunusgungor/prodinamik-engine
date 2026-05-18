@@ -103,7 +103,6 @@ def test_content_profile():
           f"{len(sm.config.transitions)} transitions, "
           f"{len(p.validators)} validators, {len(p.adapters)} adapters")
     print(f"   ✅ Slop: clean=PASS, sloppy=FAIL ({len(result.details['errors'])} errors)")
-    return p
 
 
 # ────────────── Test 2: SoftwareProfile ──────────────
@@ -146,7 +145,6 @@ def test_software_profile():
           f"{len(sm.config.transitions)} transitions")
     print(f"   ✅ Terminal block: release→iteration correctly rejected")
     print(f"   ✅ CRDT: v2 prototyping wins, Migration: prototyping→implementation")
-    return p
 
 
 # ────────────── Test 3: Cross-Profile Chain ──────────────
@@ -183,8 +181,6 @@ def test_cross_profile_chain():
 
     orch.teardown()
     print(f"   ✅ Teardown: subscribers cleaned")
-
-    return bus
 
 
 # ────────────── Test 4: Formal Migration Plan ──────────────
@@ -245,8 +241,6 @@ transitions:
     print(f"   ✅ Additive migration correctly detects: "
           f"{result2.errors[0] if result2.errors else '?'}")
 
-    return plan
-
 
 # ────────────── Test 5: Migration Edge Cases ──────────────
 
@@ -276,8 +270,6 @@ def test_migration_edges():
     assert SOFTWARE_V1_TO_V2.backward_compatible == False
     assert CONTENT_V1_TO_V2.backward_compatible == True
     print(f"   ✅ Version semantics: software=breaking, content=additive")
-
-    return removal_plan
 
 
 # ────────────── Test 6: Full Stack v0.5 ──────────────
@@ -364,7 +356,6 @@ def test_full_stack_v05():
     print(f"   ✅ Safety: {len(safety.active_violations)} active violations")
 
     print(f"\n   🎯 ALL 9 components verified together!")
-    return cli
 
 
 # ────────────── Main ──────────────

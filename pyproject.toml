@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "prodinamik-engine"
+version = "1.0.0"
+description = "Product-Agnostic Pipeline Engine — State machine, validators, event sourcing, cost tracking, Raft consensus"
+authors = [
+    { name = "Yunus Güngör", email = "mail@yunusgungor.com" },
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "hypothesis>=6.0",
+    "mypy>=1.0",
+]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[project.scripts]
+prodinamik = "engine.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "engine/",
+    "profiles/",
+    "adapters/",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["engine", "profiles", "adapters"]
+omit = ["*/demo*", "*/tests/*"]

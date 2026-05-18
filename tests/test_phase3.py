@@ -61,7 +61,6 @@ def test_cost_tracker():
           f"Network: ${c.total_network_cost:.4f})")
     print(f"   ✅ Waste: ${c.waste_estimate:.4f}")
     print(f"   ✅ Breakdown: {breakdown}")
-    return c
 
 
 # ──────────────────────────────
@@ -93,8 +92,6 @@ def test_efficiency():
     print(f"   ✅ T1 actual: {e.display('new-run')}")
     print(f"   ✅ Variance: {e.completed_runs[-1].variance_pct:+.1f}%")
 
-    return e
-
 
 # ──────────────────────────────
 # Test 3: Budget Enforcement
@@ -124,8 +121,6 @@ def test_budget():
     # Enforce: degradation
     b.apply_action(BudgetAction.STOP, "T2Test")
     print(f"   ✅ Degradation triggered: {deg.current_level.value}")
-
-    return b
 
 
 # ──────────────────────────────
@@ -158,8 +153,6 @@ def test_cost_timeline():
     timeline = debugger.cost_timeline(events)
     assert "Cost Timeline" in timeline
     print(f"   ✅ Timeline display: {len(timeline)} chars")
-
-    return debugger
 
 
 # ──────────────────────────────
@@ -211,8 +204,6 @@ def test_raft():
     assert final.current_state == "iteration", f"Expected iteration, got {final.current_state}"
     print(f"   ✅ Reconnected: flux-release → {final.current_state}")
 
-    return leader
-
 
 # ──────────────────────────────
 # Test 6: CRDT Merge
@@ -249,8 +240,6 @@ def test_crdt():
     remote = NodeState(current_state="iteration", version=2)
     merged = StateCRDT.merge(local, remote, transitions)
     print(f"   ✅ Divergent: {local.current_state} + {remote.current_state} → {merged.current_state} (local wins)")
-
-    return merged
 
 
 # ──────────────────────────────

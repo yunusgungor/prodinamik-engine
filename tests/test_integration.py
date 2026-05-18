@@ -309,10 +309,9 @@ def test_state_machine():
 
     print(f"   ✅ Content SM: {len(content_config.states)} states, "
           f"{len(content_config.transitions)} transitions")
-    return sm, content_sm
 
 
-def test_profiles(sm, content_sm):
+def test_profiles():
     """Test 2: ProductProfiles"""
     print("\n═══ Test 2: ProductProfiles ═══")
 
@@ -332,41 +331,41 @@ def test_profiles(sm, content_sm):
     assert ct.budget.hard_limit_usd == 5.0
     print(f"   ✅ ContentProfile: {ct}")
 
-    return sw, ct
 
-
-def test_run_manager(sw_profile):
+def test_run_manager():
     """Test 3: RunManager CRUD + WAL + Recovery"""
     print("\n═══ Test 3: RunManager CRUD ═══")
 
+    sw = SoftwareProfile()
+    sw.initialize()
     import tempfile
     tmpdir = tempfile.mkdtemp()
     mgr = RunManager(base_path=os.path.join(tmpdir, ".hermes"))
 
     # Create
-    run = mgr.create_run("Flux v1.0 Release", sw_profile, slug="flux-v1-release")
+    run = mgr.create_run("Flux v1.0 Release", sw, slug="flux-v1-release")
     assert run.meta.slug == "flux-v1-release"
     assert run.meta.state == "spec"
     print(f"   ✅ Created: {run.meta.slug} → state={run.meta.state}")
 
     # Read
-    run2 = mgr.get_run("flux-v1-release", sw_profile)
+    run2 = mgr.get_run("flux-v1-release", sw)
     assert run2 is not None
     assert run2.meta.state == "spec"
     print(f"   ✅ Read: {run2.meta.slug} → state={run2.meta.state}")
 
     # State update
-    run3 = mgr.update_state("flux-v1-release", "prototyping", sw_profile)
+    run3 = mgr.update_state("flux-v1-release", "prototyping", sw)
     assert run3.meta.state == "prototyping"
     print(f"   ✅ Updated: spec → prototyping")
 
-    run4 = mgr.update_state("flux-v1-release", "iteration", sw_profile)
+    run4 = mgr.update_state("flux-v1-release", "iteration", sw)
     assert run4.meta.state == "iteration"
     print(f"   ✅ Updated: prototyping → iteration")
 
     # Invalid transition (terminal state'den çıkış)
     try:
-        mgr.update_state("flux-v1-release", "release", sw_profile)
+        mgr.update_state("flux-v1-release", "release", sw)
         # condition: "human_approved" → False döndüğü için hata almalıyım
         print(f"   ⚠️  iteration→release: condition 'human_approved' blocked (expected)")
     except ValueError as e:
@@ -388,8 +387,6 @@ def test_run_manager(sw_profile):
     assert snapshot["flux-v1-release"]["status"] == "archived"
     print(f"   ✅ Recovery: {len(snapshot)} run(s) in snapshot, "
           f"flux-v1-release state={snapshot['flux-v1-release'].get('state')}")
-
-    return mgr
 
 
 def test_validators():
@@ -443,8 +440,6 @@ def test_validators():
     assert cache._hit_count > 0
     print(f"   ✅ Cache hit rate: {cache.hit_rate:.0%}")
 
-    return pipeline
-
 
 def test_degraded_mode():
     """Test 5: Degraded Mode Prediction"""
@@ -490,8 +485,6 @@ def test_degraded_mode():
     assert len(result["predictions"]) == 0, f"Expected 0 predictions, got {result['predictions']}"
     print(f"   ✅ Normal text: no predictions")
 
-    return pipeline
-
 
 def test_adapters():
     """Test 6: Adapter'lar"""
@@ -520,8 +513,6 @@ def test_adapters():
     result = asyncio.run(github_adapter.send({}))
     assert not result.success
     print(f"   ✅ GitHubAdapter (no token): {result.message}")
-
-    return file_adapter
 
 
 def test_wal_recovery():
@@ -559,8 +550,6 @@ def test_wal_recovery():
     wal_files = list(Path(os.path.join(tmpdir, ".hermes", "wal")).glob("wal_*.log"))
     print(f"   ✅ WAL files after compaction: {len(wal_files)}")
 
-    return snapshot
-
 
 # ──────────────────────────────────────
 # Run All Tests
@@ -577,8 +566,8 @@ def main():
 
     tests = [
         ("StateMachine", test_state_machine),
-        ("ProductProfiles", lambda: test_profiles(*test_state_machine())),
-        ("RunManager", lambda: test_run_manager(SoftwareProfile())),
+        ("ProductProfiles", test_profiles),
+        ("RunManager", test_run_manager),
         ("ValidatorPipeline", test_validators),
         ("DegradedMode", test_degraded_mode),
         ("Adapters", test_adapters),

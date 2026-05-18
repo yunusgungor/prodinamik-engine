@@ -1,0 +1,42 @@
+# Prodinamik Engine v1.0 — Configuration
+# 
+# Varsayılan yapılandırma. Tüm alanlar opsiyoneldir.
+# 
+# Config dosya konumu (öncelik sırasına göre):
+#   1. ./prodinamik.yaml (project root)
+#   2. ~/.config/prodinamik/config.yaml (user global)
+#   3. Varsayılan değerler
+
+# Veri dizini (run'lar, WAL, event'ler, cache)
+data_dir: ".hermes"
+
+# Logging
+log:
+  level: "INFO"        # DEBUG | INFO | WARNING | ERROR
+  format: "text"       # "text" | "json"
+  file: null           # null = stdout, veya "/var/log/prodinamik.log"
+
+# Degradation eşikleri
+degradation:
+  disk_usage_max_pct: 95
+  consecutive_llm_failures: 3
+  consecutive_adapter_failures: 3
+
+# Varsayılan budget limitleri (profile override edebilir)
+budget:
+  soft_limit_usd: 1.0
+  hard_limit_usd: 5.0
+  max_llm_calls_per_run: 20
+  max_storage_mb: 100
+
+# Event store
+event_store:
+  retention_days: 90
+  compaction_batch: 10
+
+# Yüklenecek profiller (ilk = varsayılan)
+profiles:
+  - content
+  - software
+  - research
+  - design

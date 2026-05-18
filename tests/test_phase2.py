@@ -60,7 +60,6 @@ def test_event_store():
 
     purged = store.purge()
     print(f"   ✅ Purge: {purged} removed")
-    return store
 
 
 # ──────────────────────────────
@@ -97,7 +96,6 @@ def test_event_bus():
 
     LOOP.run_until_complete(run())
     print(f"   ✅ Emit, duplicate, max hops: all correct ({bus.stats})")
-    return bus
 
 
 # ──────────────────────────────
@@ -209,7 +207,6 @@ def test_cycle_safety():
         assert len(bus.cycle_warnings) >= 1
 
     LOOP.run_until_complete(run())
-    return bus
 
 
 # ──────────────────────────────
