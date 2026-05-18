@@ -1,4 +1,4 @@
-"""Prodinamik Engine v1.0 — CLI Entry Point (Async)
+"""Prodinamik Engine v1.1 — CLI Entry Point (32 commands)
 
 Usage:
     prodinamik run <profile> <title>        # Start new run
@@ -13,20 +13,23 @@ Usage:
     prodinamik new project <name>            # Generate a new project
     prodinamik benchmark [runs]              # Run performance benchmarks
     prodinamik completion bash|zsh           # Generate shell completion script
-    prodinamik dashboard                      # Show health dashboard
-    prodinamik metrics                        # Show/export engine metrics
-    prodinamik audit query [type]             # Query audit log
-    prodinamik audit stats                    # Audit log statistics
-    prodinamik audit compact                  # Compact old audit entries
-    prodinamik auth create <name>             # Create API key
-    prodinamik auth list                      # List API keys
-    prodinamik auth revoke <id>               # Revoke API key
-    prodinamik auth info <id>                 # Show key details
-    prodinamik serve [--port PORT]            # HTTP server
-    prodinamik raft status                    # Raft cluster health
-    prodinamik raft peers <ids>               # Register peers
-    prodinamik raft elect                     # Force leader election
-    prodinamik version                        # Show version
+    prodinamik dashboard [--compact|--html]  # Show health dashboard
+    prodinamik metrics [--prometheus]        # Show/export engine metrics
+    prodinamik audit query [type]            # Query audit log
+    prodinamik audit stats                   # Audit log statistics
+    prodinamik audit compact                 # Compact old audit entries
+    prodinamik auth create <name>            # Create API key
+    prodinamik auth list                     # List API keys
+    prodinamik auth revoke <id>              # Revoke API key
+    prodinamik auth info <id>                # Show key details
+    prodinamik serve [--port PORT]           # HTTP server
+    prodinamik raft status                   # Raft cluster health
+    prodinamik raft peers <ids>              # Register peers
+    prodinamik raft elect                    # Force leader election
+    prodinamik chaos run <scenario>          # Run chaos scenario
+    prodinamik chaos list                    # List chaos scenarios
+    prodinamik chaos report                  # Show chaos test report
+    prodinamik version                       # Show version
 """
 
 import sys
@@ -752,6 +755,81 @@ def raft_elect():
     else:
         click.echo(f"⚠️  Could not elect leader (may already be one)")
     click.echo(cluster.status_text())
+
+
+# ──────────────────────────────────────────────
+# Phase 6: Chaos Engineering Commands
+# ──────────────────────────────────────────────
+
+
+@cli.group()
+def chaos():
+    """Chaos engineering: fault injection and resilience testing"""
+
+
+@chaos.command(name="run")
+@click.argument("scenario")
+@click.option("--duration", type=int, help="Override scenario duration (seconds)")
+@click.option("--dangerous", is_flag=True, help="Allow dangerous scenarios")
+def chaos_run(scenario: str, duration: Optional[int], dangerous: bool):
+    """Run a chaos scenario
+    
+    Scenarios: network-partition, network-latency, disk-full, disk-corruption,
+    memory-pressure, cpu-spike, random-crash, degraded-mode, wal-corruption, event-flood
+    """
+    from .chaos import ChaosEngine
+
+    engine = get_engine()
+
+    # Check if scenario exists and is dangerous
+    all_scenarios = ChaosEngine.SCENARIOS
+    if scenario not in all_scenarios:
+        click.echo(f"❌ Unknown scenario: {scenario}")
+        click.echo(f"   Available: {', '.join(sorted(all_scenarios.keys()))}")
+        sys.exit(1)
+
+    info = all_scenarios[scenario]
+    if info["dangerous"] and not dangerous:
+        click.echo(f"⚠️  '{scenario}' is a DANGEROUS scenario. Use --dangerous to run.")
+        click.echo(f"   It may corrupt data or crash the engine.")
+        sys.exit(1)
+
+    chaos = ChaosEngine(engine)
+    click.echo(f"🧪 Running chaos scenario: {scenario}")
+    click.echo(f"   {info['description']}")
+    click.echo(f"   Duration: {duration or info['duration']}s")
+    click.echo(f"   Dangerous: {'⚠️' if info['dangerous'] else '✅'}")
+    click.echo("")
+
+    result = chaos.run_scenario(scenario, duration=duration)
+    click.echo(result.report())
+
+
+@chaos.command(name="list")
+def chaos_list():
+    """List all available chaos scenarios"""
+    from .chaos import ChaosEngine
+
+    scenarios = ChaosEngine.SCENARIOS
+    click.echo(f"🧪 Chaos Scenarios ({len(scenarios)}):")
+    for name, info in sorted(scenarios.items()):
+        danger = " ⚠️ DANGEROUS" if info["dangerous"] else ""
+        click.echo(f"   {name:25s}  {info['description']}{danger}")
+
+
+@chaos.command(name="report")
+@click.option("--scenario", help="Filter to one scenario")
+def chaos_report(scenario: Optional[str]):
+    """Show chaos test report"""
+    from .chaos import ChaosEngine
+
+    engine = get_engine()
+    chaos = ChaosEngine(engine)
+
+    if scenario:
+        click.echo(chaos.report(scenario_name=scenario))
+    else:
+        click.echo(chaos.report())
 
 
 if __name__ == "__main__":

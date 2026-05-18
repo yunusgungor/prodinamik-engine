@@ -52,3 +52,12 @@ ignore_missing_imports = true
 [tool.coverage.run]
 source = ["engine", "profiles", "adapters"]
 omit = ["*/demo*", "*/tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]

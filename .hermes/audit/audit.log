@@ -1,0 +1,15 @@
+{"ts": "2026-05-18T08:41:30.662276+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T08:41:32.662840+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T08:41:32.663118+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
+{"ts": "2026-05-18T08:55:08.447982+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T08:55:10.448559+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T08:55:10.449112+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
+{"ts": "2026-05-18T08:55:20.626981+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T08:55:22.627337+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T08:55:22.627893+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
+{"ts": "2026-05-18T09:02:23.149047+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T09:02:25.149500+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T09:02:25.149768+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}
+{"ts": "2026-05-18T09:02:35.293582+00:00", "type": "degradation.change", "data": {"from": "FULL", "to": "DEGRADED"}, "trace_id": ""}
+{"ts": "2026-05-18T09:02:37.293955+00:00", "type": "degradation.change", "data": {"from": "DEGRADED", "to": "SURVIVAL"}, "trace_id": ""}
+{"ts": "2026-05-18T09:02:37.294261+00:00", "type": "degradation.change", "data": {"from": "SURVIVAL", "to": "FULL"}, "trace_id": ""}

@@ -7,12 +7,13 @@ cost tracking, budget enforcement, graceful degradation,
 and distributed consensus for multi-profile pipelines.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Yunus Güngör"
 __license__ = "MIT"
 
 from .config import ProdinamikConfig
 from .runtime import AsyncEngine, RuntimeConfig, LifecycleHooks, run_engine
+from .engine import ProdinamikEngine
 from .log import setup as setup_logging, get_logger
 from .profile import ProductProfile, Budget, ValidatorDef, AdapterDef, StoreDef, ValidatorTier
 from .state_machine import StateMachine, StateMachineConfig, StateType, TransitionType, RuntimeState
@@ -25,6 +26,17 @@ from .budget import BudgetEnforcer, BudgetAction
 from .safety import EventBus, RuntimeSafetyMonitor
 from .debug_cli import DebugCLI
 from .registry import ProfileRegistry
+from .hooks import HookRegistry
+from .shell import ProdinamikShell
+from .bench import Benchmark, BenchmarkResult
+from .metrics import MetricsRegistry
+from .dashboard import Dashboard
+from .audit import AuditLog
+from .auth import AuthManager
+from .ratelimit import RateLimiter
+from .server import ProdinamikServer
+from .raft import HybridConsensusNode, RaftCluster
+from .chaos import ChaosEngine, ScenarioResult
 
 __all__ = [
     "ProdinamikEngine",
@@ -59,4 +71,25 @@ __all__ = [
     "ValidatorTier",
     "setup_logging",
     "get_logger",
+    # Phase 2: Runtime
+    "AsyncEngine",
+    "RuntimeConfig",
+    "HookRegistry",
+    # Phase 3: Developer Experience
+    "ProdinamikShell",
+    "Benchmark",
+    "BenchmarkResult",
+    # Phase 4: Observability
+    "MetricsRegistry",
+    "Dashboard",
+    "AuditLog",
+    # Phase 5: Security & Distribution
+    "AuthManager",
+    "RateLimiter",
+    "ProdinamikServer",
+    "HybridConsensusNode",
+    "RaftCluster",
+    # Phase 6: Chaos Engineering
+    "ChaosEngine",
+    "ScenarioResult",
 ]

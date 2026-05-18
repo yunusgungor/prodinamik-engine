@@ -1,0 +1,492 @@
+"""
+Prodinamik Engine v1.1 — Hybrid Raft Consensus Core
+
+StateCRDT, DistributedStateMachine, OfflineManager, HybridConsensusNode.
+"""
+
+import json
+import time
+import random
+import threading
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Dict, Any, Tuple
+
+from .raft_types import (
+    NodeRole, LogEntry, NodeState, Snapshot,
+    PendingOperation, ClusterNode,
+)
+
+
+# ──────────────────────────────────────────────
+# CRDT Merge (Conflict-free Replicated Data Type)
+# ──────────────────────────────────────────────
+
+class StateCRDT:
+    """
+    CRDT for distributed state.
+    Uses version vectors for conflict detection.
+    """
+
+    @staticmethod
+    def merge(local: NodeState, remote: NodeState,
+              state_machine_transitions: Dict[str, List[str]] = None) -> NodeState:
+        if state_machine_transitions is None:
+            state_machine_transitions = {}
+
+        if remote.version > local.version:
+            return remote
+        if local.version > remote.version:
+            return local
+
+        if remote.current_state == local.current_state:
+            return local
+
+        # Concurrent: state machine path'ine göre merge
+        if StateCRDT._is_on_same_path(local.current_state,
+                                       remote.current_state,
+                                       state_machine_transitions):
+            path = StateCRDT._find_path(local.current_state,
+                                         remote.current_state,
+                                         state_machine_transitions)
+            if path and path[-1] == remote.current_state:
+                return remote
+            return local
+
+        return local  # Default: local koru
+
+    @staticmethod
+    def _is_on_same_path(a: str, b: str, transitions: Dict[str, List[str]]) -> bool:
+        if not transitions:
+            return False
+        path = StateCRDT._find_path(a, b, transitions)
+        if path:
+            return True
+        path = StateCRDT._find_path(b, a, transitions)
+        if path:
+            return True
+        return False
+
+    @staticmethod
+    def _find_path(start: str, end: str,
+                   transitions: Dict[str, List[str]],
+                   visited: set = None) -> Optional[List[str]]:
+        if visited is None:
+            visited = set()
+        if start == end:
+            return [end]
+        if start in visited:
+            return None
+        visited.add(start)
+        for next_state in transitions.get(start, []):
+            path = StateCRDT._find_path(next_state, end, transitions, visited)
+            if path:
+                return [start] + path
+        return None
+
+
+# ──────────────────────────────────────────────
+# Distributed State Machine
+# ──────────────────────────────────────────────
+
+class DistributedStateMachine:
+    """
+    Distributed state machine backed by Raft+CRDT.
+    State machine SADECE Leader'da çalışır.
+    Follower'lar Leader'ın log'unu replicate eder.
+    """
+
+    def __init__(self, node_id: str, peers: List[str] = None,
+                 state_dir: str = ".hermes/raft/"):
+        self.node_id = node_id
+        self.peers = peers or []
+        self.state_dir = Path(state_dir)
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+
+        # Raft state
+        self.role = NodeRole.FOLLOWER
+        self.current_term = 0
+        self.voted_for: Optional[str] = None
+        self.log: List[LogEntry] = self._load_log()
+        self.commit_index = -1
+        self.last_applied = -1
+        self.state_machine: Dict[str, NodeState] = self._load_snapshot()
+
+        # Election
+        self.election_timeout = random.uniform(1.5, 3.0)
+        self.last_heartbeat = time.time()
+
+        # Transitions (state machine DAG)
+        self.transitions: Dict[str, List[str]] = {}
+
+    def configure_transitions(self, transitions: Dict[str, List[str]]):
+        self.transitions = transitions
+
+    # ── Raft Core ──
+
+    def become_follower(self, term: int):
+        self.role = NodeRole.FOLLOWER
+        self.current_term = term
+        self.voted_for = None
+        self.last_heartbeat = time.time()
+
+    def become_candidate(self):
+        self.role = NodeRole.CANDIDATE
+        self.current_term += 1
+        self.voted_for = self.node_id
+        self.last_heartbeat = time.time()
+        votes = 1
+        for peer in self.peers:
+            if self._request_vote(peer):
+                votes += 1
+        if votes > len(self.peers) // 2:
+            self.become_leader()
+
+    def become_leader(self):
+        self.role = NodeRole.LEADER
+        self._broadcast_heartbeat()
+
+    def _start_election(self):
+        """Force an election cycle"""
+        self.become_candidate()
+        if self.role == NodeRole.CANDIDATE:
+            self.become_candidate()
+
+    def append_entries(self, entries: List[LogEntry],
+                       prev_log_index: int, prev_log_term: int,
+                       leader_commit: int) -> Tuple[bool, int, int]:
+        if prev_log_index >= 0 and prev_log_index < len(self.log):
+            if self.log[prev_log_index].term != prev_log_term:
+                return False, prev_log_index, self.log[prev_log_index].term
+        for i, entry in enumerate(entries):
+            idx = prev_log_index + 1 + i
+            if idx < len(self.log):
+                if self.log[idx].term != entry.term:
+                    self.log = self.log[:idx]
+                    self.log.append(entry)
+            else:
+                self.log.append(entry)
+        if leader_commit > self.commit_index:
+            self.commit_index = min(leader_commit, len(self.log) - 1)
+            self._apply_committed()
+        self.last_heartbeat = time.time()
+        self._save_log()
+        return True, 0, 0
+
+    def request_vote(self, candidate_term: int, candidate_id: str,
+                     last_log_index: int, last_log_term: int) -> bool:
+        if candidate_term < self.current_term:
+            return False
+        if candidate_term > self.current_term:
+            self.become_follower(candidate_term)
+        if (self.voted_for is None or self.voted_for == candidate_id) \
+           and last_log_term >= self._last_log_term():
+            self.voted_for = candidate_id
+            self.last_heartbeat = time.time()
+            return True
+        return False
+
+    # ── State Machine Apply ──
+
+    def _apply_committed(self):
+        while self.last_applied < self.commit_index:
+            self.last_applied += 1
+            entry = self.log[self.last_applied]
+            self._apply_command(entry.command)
+
+    def _apply_command(self, command: dict):
+        slug = command.get("slug")
+        if not slug:
+            return
+        if slug not in self.state_machine:
+            self.state_machine[slug] = NodeState()
+        cmd_type = command.get("type")
+        if cmd_type == "transition":
+            to_state = command.get("to_state")
+            if to_state:
+                self.state_machine[slug].current_state = to_state
+                self.state_machine[slug].version += 1
+        elif cmd_type == "create":
+            initial_state = command.get("initial_state", "start")
+            self.state_machine[slug] = NodeState(
+                current_state=initial_state, version=1
+            )
+        elif cmd_type == "archive":
+            self.state_machine[slug] = NodeState(
+                current_state="archived",
+                version=self.state_machine[slug].version + 1
+            )
+
+    def get_state(self, slug: str) -> Optional[NodeState]:
+        return self.state_machine.get(slug)
+
+    def propose(self, command: dict) -> Tuple[bool, Optional[str]]:
+        if self.role != NodeRole.LEADER:
+            return False, "Not leader"
+        entry = LogEntry(
+            term=self.current_term,
+            index=len(self.log),
+            command=command,
+        )
+        self.log.append(entry)
+        self.commit_index = len(self.log) - 1
+        self._apply_committed()
+        self._save_log()
+        for peer in self.peers:
+            self._replicate_to(peer)
+        return True, None
+
+    # ── Persistence ──
+
+    def _load_log(self) -> List[LogEntry]:
+        path = self.state_dir / f"raft_log_{self.node_id}.json"
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                return [LogEntry(**e) for e in data]
+            except (json.JSONDecodeError, OSError):
+                pass
+        return []
+
+    def _save_log(self):
+        path = self.state_dir / f"raft_log_{self.node_id}.json"
+        path.write_text(
+            json.dumps([
+                {"term": e.term, "index": e.index,
+                 "command": e.command, "timestamp": e.timestamp}
+                for e in self.log
+            ], indent=2, ensure_ascii=False),
+            encoding="utf-8"
+        )
+
+    def _load_snapshot(self) -> Dict[str, NodeState]:
+        path = self.state_dir / f"raft_snapshot_{self.node_id}.json"
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                return {k: NodeState(**v) for k, v in data.items()}
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
+    def save_snapshot(self):
+        path = self.state_dir / f"raft_snapshot_{self.node_id}.json"
+        path.write_text(
+            json.dumps({
+                k: {"current_state": v.current_state, "version": v.version}
+                for k, v in self.state_machine.items()
+            }, indent=2, ensure_ascii=False),
+            encoding="utf-8"
+        )
+
+    def _last_log_term(self) -> int:
+        if self.log:
+            return self.log[-1].term
+        return 0
+
+    # ── Peer Communication (simüle) ──
+
+    def _request_vote(self, peer: str) -> bool:
+        return True
+
+    def _broadcast_heartbeat(self):
+        pass
+
+    def _replicate_to(self, peer: str):
+        pass
+
+    def provide_merge(self, slug: str, merged_state: NodeState) -> Tuple[bool, Optional[str]]:
+        if self.role != NodeRole.LEADER:
+            return False, "Not leader"
+        self.state_machine[slug] = merged_state
+        self.save_snapshot()
+        return True, None
+
+    # ── Display ──
+
+    def status(self) -> str:
+        return (
+            f"📡 **Raft Node:** `{self.node_id}`\n"
+            f"   Role: `{self.role.value}`\n"
+            f"   Term: `{self.current_term}`\n"
+            f"   Log entries: `{len(self.log)}`\n"
+            f"   Committed: `{self.commit_index}`\n"
+            f"   States tracked: `{len(self.state_machine)}`\n"
+            f"   Peers: `{self.peers}`"
+        )
+
+
+# ──────────────────────────────────────────────
+# Offline Manager
+# ──────────────────────────────────────────────
+
+class OfflineManager:
+    """
+    Offline mode: optimistic local writes.
+    Reconnect: pending log → Leader approval → CRDT merge.
+    """
+
+    def __init__(self, local_node: DistributedStateMachine):
+        self.local_node = local_node
+        self.pending: List[PendingOperation] = []
+        self.is_offline = False
+
+    def go_offline(self):
+        self.is_offline = True
+        self.local_node.role = NodeRole.OFFLINE
+
+    def go_online(self, leader: DistributedStateMachine):
+        self.is_offline = False
+        self.local_node.role = NodeRole.RECONNECTING
+        self._sync_with_leader(leader)
+        self.local_node.role = NodeRole.FOLLOWER
+
+    def apply_pending(self, command: dict) -> NodeState:
+        slug = command.get("slug")
+        if not slug:
+            return NodeState()
+        if slug not in self.local_node.state_machine:
+            self.local_node.state_machine[slug] = NodeState()
+        old_version = self.local_node.state_machine[slug].version
+
+        self.pending.append(PendingOperation(
+            command=command,
+            timestamp=datetime.now().isoformat(),
+            local_version=old_version,
+        ))
+
+        # Optimistic: local cache'i güncelle
+        if command.get("type") == "transition":
+            self.local_node.state_machine[slug].current_state = \
+                command.get("to_state", self.local_node.state_machine[slug].current_state)
+            self.local_node.state_machine[slug].version += 1
+        return self.local_node.state_machine[slug]
+
+    def _sync_with_leader(self, leader: DistributedStateMachine):
+        for op in self.pending:
+            if op.applied:
+                continue
+            success, error = leader.propose(op.command)
+            if success:
+                op.applied = True
+            else:
+                local_state = self.local_node.get_state(op.command["slug"])
+                remote_state = leader.get_state(op.command["slug"])
+                if local_state and remote_state:
+                    merged = StateCRDT.merge(
+                        local_state, remote_state,
+                        self.local_node.transitions
+                    )
+                    leader.provide_merge(op.command["slug"], merged)
+
+    @property
+    def pending_count(self) -> int:
+        return sum(1 for p in self.pending if not p.applied)
+
+    @property
+    def status(self) -> str:
+        return (
+            f"📱 **Offline Manager:**\n"
+            f"   Mode: `{'OFFLINE' if self.is_offline else 'ONLINE'}`\n"
+            f"   Pending ops: `{self.pending_count}`\n"
+            f"   Total ops: `{len(self.pending)}`"
+        )
+
+
+# ──────────────────────────────────────────────
+# Hybrid Consensus Node (Review #5)
+# ──────────────────────────────────────────────
+
+class HybridConsensusNode:
+    """
+    Raft + Offline + CRDT hybrid model.
+
+    Online:  Raft consensus (Leader writes, Follower replicates)
+    Offline: Optimistic local writes (pending log)
+    Reconnect: 5-adımlı sync prosedürü
+    """
+
+    def __init__(self, node_id: str, peers: List[str] = None,
+                 state_dir: str = ".hermes/raft/"):
+        self.raft = DistributedStateMachine(node_id, peers, state_dir)
+        self.offline = OfflineManager(self.raft)
+        self.crdt = StateCRDT()
+
+    def apply(self, command: dict) -> Tuple[bool, Optional[str]]:
+        if self.offline.is_offline:
+            self.offline.apply_pending(command)
+            return True, None
+        return self.raft.propose(command)
+
+    def reconnect(self, leader: "HybridConsensusNode"):
+        print(f"   🔄 Reconnecting: {self.raft.node_id} → {leader.raft.node_id}")
+
+        # 1. Raft state sync
+        self.raft.log = list(leader.raft.log)
+        self.raft.commit_index = len(self.raft.log) - 1
+        self.raft._apply_committed()
+        print(f"   ✅ Step 1: Raft state synced ({len(self.raft.log)} entries)")
+
+        # 2. Pending log'u Leader'a gönder
+        pending_count = len(self.offline.pending)
+        for op in self.offline.pending:
+            if op.applied:
+                continue
+            success, error = leader.raft.propose(op.command)
+            if success:
+                op.applied = True
+        print(f"   ✅ Step 2: {pending_count} pending ops sent to leader")
+
+        # 3. CRDT merge (conflict varsa)
+        conflicts = 0
+        for op in self.offline.pending:
+            if not op.command.get("slug"):
+                continue
+            local = self.raft.get_state(op.command["slug"])
+            remote = leader.raft.get_state(op.command["slug"])
+            if local and remote and local.version != remote.version:
+                merged = self.crdt.merge(
+                    local, remote, self.raft.transitions
+                )
+                if merged != local:
+                    conflicts += 1
+                    leader.raft.provide_merge(op.command["slug"], merged)
+        print(f"   ✅ Step 3-4: {conflicts} conflict(s) resolved via CRDT merge")
+
+        # 5. Nihai state'i al
+        self.raft.state_machine = dict(leader.raft.state_machine)
+        self.raft.save_snapshot()
+        self.offline.pending.clear()
+        self.offline.is_offline = False
+        self.raft.role = NodeRole.FOLLOWER
+        print(f"   ✅ Step 5: Final state synced ready")
+
+    def get_state(self, slug: str) -> Optional[NodeState]:
+        return self.raft.get_state(slug)
+
+    def status(self) -> str:
+        return f"{self.raft.status()}\n{self.offline.status}"
+
+    # ── Cluster Health (Phase 5) ──
+
+    def health(self) -> dict:
+        return {
+            "node_id": self.raft.node_id,
+            "role": self.raft.role.value,
+            "term": self.raft.current_term,
+            "commit_index": self.raft.commit_index,
+            "log_length": len(self.raft.log),
+            "state_count": len(self.raft.state_machine),
+            "is_offline": self.offline.is_offline,
+            "pending_count": len(self.offline.pending),
+            "peers": self.raft.peers,
+        }
+
+    def is_leader(self) -> bool:
+        return self.raft.role == NodeRole.LEADER
+
+    def force_election(self) -> bool:
+        if self.raft.role != NodeRole.LEADER:
+            self.raft._start_election()
+            return self.raft.role == NodeRole.LEADER
+        return False

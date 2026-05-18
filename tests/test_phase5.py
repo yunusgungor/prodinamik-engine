@@ -275,7 +275,69 @@ def test_migration_edges():
 # ────────────── Test 6: Full Stack v0.5 ──────────────
 
 def test_full_stack_v05():
-    print("\n═══ Test 6: Full Stack v0.5 ═══")
+    """Full stack works end-to-end"""
+    tmpdir = tempfile.mkdtemp()
+
+# ──────────────────────────────────────────────
+# Profile Validation Tests (D07)
+# ──────────────────────────────────────────────
+
+
+def test_content_profile_valid():
+    """Content profile initializes with valid state machine"""
+    from profiles.content import ContentProfile
+    p = ContentProfile()
+    p.initialize()
+    assert p.state_machine is not None
+    assert p.name == "content"
+    assert len(p.state_machine.config.states) == 9
+    initial = p.state_machine.config.initial_states
+    assert len(initial) >= 1
+    assert initial[0].state_type.name == "INITIAL"
+
+
+def test_software_profile_valid():
+    """Software profile initializes with valid state machine"""
+    from profiles.software import SoftwareProfile
+    p = SoftwareProfile()
+    p.initialize()
+    assert p.state_machine is not None
+    assert p.name == "software"
+    assert len(p.state_machine.config.states) == 7
+
+
+def test_research_profile_valid():
+    """Research profile initializes with valid state machine"""
+    from profiles.research import ResearchProfile
+    p = ResearchProfile()
+    p.initialize()
+    assert p.state_machine is not None
+    assert p.name == "research"
+    assert len(p.state_machine.config.states) == 10
+
+
+def test_design_profile_valid():
+    """Design profile initializes with valid state machine"""
+    from profiles.design import DesignProfile
+    p = DesignProfile()
+    p.initialize()
+    assert p.state_machine is not None
+    assert p.name == "design"
+    assert len(p.state_machine.config.states) == 8
+
+
+def test_all_profiles_have_budget():
+    """All profiles have a valid budget configuration"""
+    from profiles.content import ContentProfile
+    from profiles.software import SoftwareProfile
+    from profiles.research import ResearchProfile
+    from profiles.design import DesignProfile
+
+    for ProfileClass in [ContentProfile, SoftwareProfile, ResearchProfile, DesignProfile]:
+        p = ProfileClass()
+        p.initialize()
+        b = p.budget
+        assert b is not None, f"{p.name} missing budget"
     tmpdir = tempfile.mkdtemp()
     slug = "v05-full-stack"
 
