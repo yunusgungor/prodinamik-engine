@@ -13,7 +13,12 @@ Usage:
     prodinamik new project <name>            # Generate a new project
     prodinamik benchmark [runs]              # Run performance benchmarks
     prodinamik completion bash|zsh           # Generate shell completion script
-    prodinamik version                       # Show version
+    prodinamik dashboard                      # Show health dashboard
+    prodinamik metrics                        # Show/export engine metrics
+    prodinamik audit query [type]             # Query audit log
+    prodinamik audit stats                    # Audit log statistics
+    prodinamik audit compact                  # Compact old audit entries
+    prodinamik version                        # Show version
 """
 
 import sys
@@ -328,7 +333,7 @@ _prodinamik_completion()
     _init_completion || return
 
     # Commands
-    local commands="run list transition debug config validate daemon shell new benchmark completion version help"
+    local commands="run list transition debug config validate daemon shell new benchmark completion version dashboard metrics audit help"
 
     # First word: command
     if [[ $cword -eq 1 ]]; then
@@ -384,6 +389,9 @@ _prodinamik() {
         'new:Scaffold new profiles and projects'
         'benchmark:Run performance benchmarks'
         'completion:Generate shell completion script'
+        'dashboard:Show health dashboard'
+        'metrics:Export Prometheus metrics'
+        'audit:Query audit log'
         'version:Show version'
     )
 
@@ -416,6 +424,138 @@ _prodinamik() {
 
 compdef _prodinamik prodinamik
 """
+
+
+# ──────────────────────────────────────────────
+# Phase 4: Observability Commands
+# ──────────────────────────────────────────────
+
+
+@cli.command()
+@click.option("--compact", is_flag=True, help="Show compact one-line status")
+@click.option("--no-color", is_flag=True, help="Disable ANSI colors")
+@click.option("--html", is_flag=True, help="Export as HTML file")
+@click.option("--output", "-o", type=click.Path(), help="Output file for HTML export")
+def dashboard(compact: bool, no_color: bool, html: bool, output: str):
+    """Show engine health dashboard"""
+    from .dashboard import Dashboard, render_html_dashboard
+    if no_color:
+        Dashboard.GREEN = Dashboard.YELLOW = Dashboard.RED = ""
+        Dashboard.CYAN = Dashboard.BLUE = Dashboard.DIM = ""
+        Dashboard.BOLD = Dashboard.RESET = ""
+
+    engine = get_engine()
+
+    if html:
+        html_content = render_html_dashboard(engine)
+        out_path = output or "prodinamik_dashboard.html"
+        Path(out_path).write_text(html_content, encoding="utf-8")
+        click.echo(f"✅ Dashboard exported: {out_path}")
+        return
+
+    dash = Dashboard(engine)
+
+    if compact:
+        click.echo(dash.render_compact())
+    else:
+        click.echo(dash.render())
+
+
+@cli.command()
+@click.option("--prometheus", is_flag=True, help="Render in Prometheus format")
+@click.option("--output", "-o", type=click.Path(), help="Write metrics to file")
+def metrics(prometheus: bool, output: str):
+    """Show or export engine metrics"""
+    from .metrics import metrics, EngineMetrics
+
+    engine = get_engine()
+    em = EngineMetrics(engine)
+    em.poll()
+
+    if prometheus:
+        result = metrics.render_prometheus()
+    else:
+        snap = em.snapshot()
+        import json
+        result = json.dumps(snap, indent=2, default=str)
+
+    if output:
+        Path(output).write_text(result, encoding="utf-8")
+        click.echo(f"✅ Metrics written: {output}")
+    else:
+        click.echo(result)
+
+
+@cli.group()
+def audit():
+    """Query and manage audit log"""
+
+
+@audit.command()
+@click.argument("event_type", required=False)
+@click.option("--since", help="Start timestamp (ISO format)")
+@click.option("--until", help="End timestamp (ISO format)")
+@click.option("--limit", default=20, type=int, help="Max entries")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def query(event_type, since, until, limit, as_json):
+    """Query audit log entries"""
+    from .audit import AuditLog
+
+    engine = get_engine()
+    cfg = get_config()
+    audit_dir = Path(cfg.data_dir) / "audit"
+    log = AuditLog(base_path=str(audit_dir))
+
+    results = log.query(
+        since=since, until=until,
+        event_type=event_type, limit=limit,
+    )
+
+    if as_json:
+        import json as j
+        click.echo(j.dumps([e.to_dict() for e in results], indent=2, ensure_ascii=False))
+    else:
+        if not results:
+            click.echo("No audit entries found.")
+            return
+        for e in results:
+            summary = e.data.get("slug", e.data.get("profile", e.event_type))
+            click.echo(f"  [{e.timestamp[11:19]}] {e.event_type}: {summary}")
+
+
+@audit.command()
+def stats():
+    """Show audit log statistics"""
+    from .audit import AuditLog
+
+    engine = get_engine()
+    cfg = get_config()
+    audit_dir = Path(cfg.data_dir) / "audit"
+    log = AuditLog(base_path=str(audit_dir))
+
+    s = log.stats()
+    click.echo("📊 Audit Log Stats:")
+    click.echo(f"   Active entries:     {s['active_entries']}")
+    click.echo(f"   Archive segments:   {s['archive_segments']}")
+    click.echo(f"   Base path:          {s['base_path']}")
+
+
+@audit.command()
+@click.option("--older-than", default=7, type=int, help="Compact entries older than N days")
+def compact(older_than: int):
+    """Compact old audit entries"""
+    from .audit import AuditLog
+
+    engine = get_engine()
+    cfg = get_config()
+    audit_dir = Path(cfg.data_dir) / "audit"
+    log = AuditLog(base_path=str(audit_dir))
+
+    count = log.compact(older_than_days=older_than)
+    if count:
+        click.echo(f"✅ Compacted {count} entries older than {older_than} days")
+    else:
+        click.echo("No entries to compact.")
 
 
 if __name__ == "__main__":
