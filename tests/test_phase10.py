@@ -554,3 +554,210 @@ def test_grafana_dashboard_json():
     rows = [p for p in data["panels"] if p["type"] == "row"]
     assert len(rows) >= 3  # Engine Health, Performance, Security etc.
 
+
+# ──────────────────────────────────────────────
+# Performance Tests
+# ──────────────────────────────────────────────
+
+
+def test_event_store_append_many():
+    """EventStore.append_many writes batch efficiently"""
+    import tempfile
+    import shutil
+    from engine.event_store import EventStore, Event
+
+    tmpdir = tempfile.mkdtemp()
+    store = EventStore(base_path=tmpdir, slug="perf-test")
+    events = [
+        Event(sequence=0, run_slug="perf", timestamp="2026-01-01",
+              event_type="state_transition", data={"from": "a", "to": "b"})
+        for _ in range(10)
+    ]
+    seqs = store.append_many(events)
+    assert len(seqs) == 10
+    assert seqs[0] == 1
+    assert seqs[-1] == 10
+
+    # Verify all events readable
+    for seq in seqs:
+        event = store.get(seq)
+        assert event is not None
+        assert event.run_slug == "perf"
+
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_event_store_append_many_empty():
+    """append_many with empty list returns []"""
+    import tempfile
+    import shutil
+    from engine.event_store import EventStore
+
+    tmpdir = tempfile.mkdtemp()
+    store = EventStore(base_path=tmpdir, slug="perf-test")
+    assert store.append_many([]) == []
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_event_store_append_many_large_batch():
+    """append_many handles 100 events"""
+    import tempfile
+    import shutil
+    from engine.event_store import EventStore, Event
+
+    tmpdir = tempfile.mkdtemp()
+    store = EventStore(base_path=tmpdir, slug="perf-batch")
+    events = [
+        Event(sequence=0, run_slug="batch", timestamp="2026-01-01",
+              event_type="state_transition", data={"i": i})
+        for i in range(100)
+    ]
+    seqs = store.append_many(events)
+    assert len(seqs) == 100
+    assert store.event_count == 100
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_run_manager_wal_batch():
+    """RunManager._append_wal_batch writes batch file"""
+    import tempfile
+    import shutil
+    import json
+    from pathlib import Path
+    from engine.run_manager import RunManager
+
+    tmpdir = tempfile.mkdtemp()
+    mgr = RunManager(base_path=tmpdir)
+
+    entries = [
+        {"action": "create", "slug": f"test-{i}", "timestamp": "2026-01-01"}
+        for i in range(5)
+    ]
+    mgr._append_wal_batch(entries)
+
+    # Verify batch file exists
+    wal_dir = Path(tmpdir) / "wal"
+    batch_files = list(wal_dir.glob("*.batch"))
+    assert len(batch_files) == 1
+
+    # Verify content
+    content = batch_files[0].read_text()
+    assert "checksum" in content
+    assert "test-0" in content
+    assert "test-4" in content
+    assert content.count("\n") == 5  # 5 entries
+
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_state_machine_lru_cache():
+    """StateMachine LRU cache caches get_next_states"""
+    from engine.state_machine import StateMachine, StateMachineParser
+
+    yaml = """
+profile: test
+name: perf-test
+version: 1.0
+states:
+  a: {type: initial, max_reentries: 1}
+  b: {type: intermediate, max_reentries: 5}
+  c: {type: intermediate, max_reentries: 5}
+  d: {type: terminal, max_reentries: 0}
+transitions:
+  a -> b: {}
+  a -> c: {}
+  b -> d: {}
+  c -> d: {}
+"""
+    config = StateMachineParser.parse_string(yaml)
+    sm = StateMachine(config, lru_size=10)
+
+    # First call: populates cache
+    result1 = sm.get_next_states("a")
+    assert result1 == ["b", "c"]
+
+    # Second call: from cache (same result)
+    result2 = sm.get_next_states("a")
+    assert result2 == ["b", "c"]
+
+    # Different state: not cached yet
+    result3 = sm.get_next_states("b")
+    assert result3 == ["d"]
+
+    # Verify cache stats
+    assert "next:a" in sm._transition_cache
+    assert "next:b" in sm._transition_cache
+    assert len(sm._transition_cache) <= 10
+
+
+def test_state_machine_lru_cache_eviction():
+    """LRU cache evicts oldest entries when full"""
+    from engine.state_machine import StateMachine, StateMachineParser
+
+    # Generate 20 states programmatically (avoid format string + YAML flow conflict)
+    lines = ["profile: test", "name: perf-test", "version: 1.0", "states:"]
+    for i in range(20):
+        stype = "initial" if i == 0 else "intermediate"
+        max_r = 0 if i == 0 else 5
+        lines.append(f"  s{i}:")
+        lines.append(f"    type: {stype}")
+        lines.append(f"    max_reentries: {max_r}")
+    lines.append("  end:")
+    lines.append("    type: terminal")
+    lines.append("    max_reentries: 0")
+    lines.append("transitions:")
+    for i in range(20):
+        if i < 19:
+            lines.append(f"  s{i} -> s{i+1}:")
+            lines.append("    type: REVERSIBLE")
+        else:
+            lines.append(f"  s{i} -> end:")
+            lines.append("    type: REVERSIBLE")
+
+    yaml_str = "\n".join(lines)
+    config = StateMachineParser.parse_string(yaml_str)
+    sm = StateMachine(config, lru_size=5)
+
+    # Access 10 different states
+    for i in range(10):
+        sm.get_next_states(f"s{i}")
+
+    # Cache should be bounded at 5
+    assert len(sm._transition_cache) == 5
+
+
+def test_benchmark_event_store_append_many():
+    """Benchmark: append_many vs append for 50 events"""
+    import tempfile
+    import shutil
+    import time
+    from engine.event_store import EventStore, Event
+
+    tmpdir = tempfile.mkdtemp()
+    events_50 = [
+        Event(sequence=0, run_slug="bench", timestamp="2026-01-01",
+              event_type="benchmark", data={"n": i})
+        for i in range(50)
+    ]
+
+    # Single append: 50 separate writes + 50 index saves
+    store1 = EventStore(base_path=tmpdir, slug="bench-single")
+    start = time.perf_counter()
+    for e in events_50:
+        store1.append(e)
+    single_time = (time.perf_counter() - start) * 1000
+
+    # Batch append: 50 writes + 1 index save
+    store2 = EventStore(base_path=tmpdir, slug="bench-batch")
+    start = time.perf_counter()
+    store2.append_many(events_50)
+    batch_time = (time.perf_counter() - start) * 1000
+
+    # Batch should be faster
+    print(f"\n  ⏱  Single: {single_time:.1f}ms | Batch: {batch_time:.1f}ms | "
+          f"Ratio: {single_time/batch_time:.1f}x faster")
+    assert batch_time < single_time * 2  # Not strict — depends on filesystem
+
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+

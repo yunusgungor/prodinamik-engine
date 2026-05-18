@@ -1,0 +1,42 @@
+{
+  "scenario_name": "cpu-spike",
+  "fault_type": "cpu-spike",
+  "started_at": "2026-05-18T10:12:26.686339+00:00",
+  "duration_seconds": 2.9999997330014594,
+  "fault_injected": true,
+  "system_survived": true,
+  "self_healed": true,
+  "recovery_time_seconds": 1.0014579270064132,
+  "health_before": {
+    "running": "False",
+    "profiles": "['content', 'software', 'research', 'design']",
+    "degradation": "full",
+    "health_score": "1.0",
+    "active_runs": "2",
+    "total_runs": "2",
+    "event_stores": "0",
+    "total_cost": "0.0"
+  },
+  "health_during": {
+    "running": "False",
+    "profiles": "['content', 'software', 'research', 'design']",
+    "degradation": "full",
+    "health_score": "1.0",
+    "active_runs": "2",
+    "total_runs": "2",
+    "event_stores": "0",
+    "total_cost": "0.0"
+  },
+  "health_after": {
+    "running": "False",
+    "profiles": "['content', 'software', 'research', 'design']",
+    "degradation": "full",
+    "health_score": "1.0",
+    "active_runs": "2",
+    "total_runs": "2",
+    "event_stores": "0",
+    "total_cost": "0.0"
+  },
+  "events_logged": 0,
+  "errors": []
+}

@@ -10,6 +10,7 @@ and sm_parser so existing imports continue to work.
 
 from datetime import datetime
 from typing import List, Dict, Optional, Set, Tuple
+from collections import OrderedDict
 
 from .sm_parser import StateMachineParser
 
@@ -28,10 +29,13 @@ class StateMachine:
     - Runtime'da transition kurallarını uygular
     """
 
-    def __init__(self, config: StateMachineConfig):
+    def __init__(self, config: StateMachineConfig, lru_size: int = 128):
         self.config = config
         self._build_transition_map()
         self._validate_or_raise()
+        # LRU cache for can_transition results
+        self._transition_cache: OrderedDict = OrderedDict()
+        self._lru_size = lru_size
 
     def _build_transition_map(self):
         """Transition'ları from_state bazında grupla (hızlı lookup için)"""
@@ -213,10 +217,28 @@ class StateMachine:
     # ──────────────────────────────────────
 
     def get_next_states(self, current_state: str) -> List[str]:
-        return [t.to_state for t in self._transition_map.get(current_state, [])]
+        """Bir state'ten gidilebilecek state'leri listele (cached)"""
+        cache_key = f"next:{current_state}"
+        if cache_key in self._transition_cache:
+            self._transition_cache.move_to_end(cache_key)
+            return self._transition_cache[cache_key]
+
+        result = [t.to_state for t in self._transition_map.get(current_state, [])]
+        self._transition_cache[cache_key] = result
+        if len(self._transition_cache) > self._lru_size:
+            self._transition_cache.popitem(last=False)
+        return result
 
     def can_transition(self, from_state: str, to_state: str,
                        runtime: RuntimeState = None) -> Tuple[bool, str]:
+        # LRU cache lookup (sadece runtime'sız çağrılar için — yani statik kontroller)
+        if runtime is None:
+            cache_key = f"{from_state}→{to_state}"
+            if cache_key in self._transition_cache:
+                # Move to end (most recently used)
+                self._transition_cache.move_to_end(cache_key)
+                return self._transition_cache[cache_key]
+
         if from_state not in self.config.states:
             return False, f"Source state '{from_state}' not found"
         if to_state not in self.config.states:
@@ -249,6 +271,13 @@ class StateMachine:
                     return False, f"Transition condition not met: {t.condition}"
             except Exception as e:
                 return False, f"Condition evaluation failed: {e}"
+
+        # Cache the result (sadece runtime'sız çağrılar için)
+        if runtime is None:
+            cache_key = f"{from_state}→{to_state}"
+            self._transition_cache[cache_key] = (True, "Transition allowed")
+            if len(self._transition_cache) > self._lru_size:
+                self._transition_cache.popitem(last=False)
 
         return True, "Transition allowed"
 
