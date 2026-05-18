@@ -1,0 +1,20 @@
+# ──────────────────────────────────────────────────
+# .dockerignore
+# ──────────────────────────────────────────────────
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.hermes
+.cache
+*.egg-info
+dist
+build
+.env
+.env.*
+dump.rdb
+*.log

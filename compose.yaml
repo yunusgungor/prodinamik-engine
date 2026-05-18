@@ -1,0 +1,60 @@
+# ──────────────────────────────────────────────────
+# Prodinamik Engine — Docker Compose
+# ──────────────────────────────────────────────────
+# Usage:
+#   docker compose build     # Build all stages
+#   docker compose run ci    # Run tests
+#   docker compose run app   # Run CLI
+# ──────────────────────────────────────────────────
+
+services:
+  # ── Production App ──
+  app:
+    build:
+      context: .
+      target: production
+      tags:
+        - "prodinamik-engine:latest"
+    image: prodinamik-engine:latest
+    entrypoint: ["prodinamik"]
+    command: ["--help"]
+    volumes:
+      - prodinamik-data:/app/.hermes
+
+  # ── CI: Test Runner ──
+  ci:
+    profiles: ["ci"]
+    build:
+      context: .
+      target: test
+    image: prodinamik-engine:test
+    entrypoint: ["python", "-m", "pytest"]
+    command: ["tests/", "-v", "--tb=short"]
+
+  # ── CI: Lint Runner ──
+  lint:
+    profiles: ["ci"]
+    build:
+      context: .
+      target: lint
+    image: prodinamik-engine:lint
+
+  # ── Interactive Shell ──
+  shell:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: production
+    image: prodinamik-engine:dev
+    entrypoint: ["prodinamik", "shell"]
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./engine:/app/engine
+      - ./profiles:/app/profiles
+      - ./adapters:/app/adapters
+      - ./tests:/app/tests
+      - prodinamik-data:/app/.hermes
+
+volumes:
+  prodinamik-data:
