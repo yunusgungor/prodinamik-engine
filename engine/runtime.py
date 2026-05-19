@@ -5,6 +5,7 @@ lifecycle hooks, and graceful shutdown.
 """
 
 import asyncio
+import os
 import signal
 import sys
 from dataclasses import dataclass, field
@@ -23,6 +24,9 @@ from .degradation import DegradationManager, DegradationLevel
 from .budget import BudgetEnforcer
 from .safety import EventBus, RuntimeSafetyMonitor
 from .autofix import AutoRemediator, FailureMatcher
+from .aidetect import AIDriftDetector, DriftType, DriftSeverity, TrendDirection
+from .skillforge import AutoSkillForge
+from .agent_coordinator import WarmAgentCoordinator, AgentTaskType
 from .state_machine import RuntimeState
 
 
@@ -111,6 +115,19 @@ class AsyncEngine:
         self._remediator = AutoRemediator()
         self._auto_remediation_enabled = True
         
+        # ── C2: Skill Emergence (AI Grid) ──
+        self._drift_detector = AIDriftDetector()
+        self._skill_forge = AutoSkillForge(self._drift_detector)
+        self._skill_emergence_enabled = True
+        self._skill_callback: Optional[Callable] = None  # (SkillDraft) → Hermes skill_manage
+        
+        # ── C3: Warm Agent Coordinator ──
+        self._agent_coordinator = WarmAgentCoordinator(
+            data_dir=os.path.join(self.config.data_dir, "warm-agent"),
+            engine_ref=self,
+        )
+        self._warm_agent_enabled = True
+        
         # Track visited states per slug for timeout calculation
         self._state_entry_time: Dict[str, Dict[str, datetime]] = {}
 
@@ -155,6 +172,79 @@ class AsyncEngine:
         
         return None
 
+    # ── C2: Skill Emergence ──────────────────
+    
+    def record_drift(self, slug: str, drift_type: DriftType,
+                     severity: DriftSeverity, state: str,
+                     description: str, **metadata) -> None:
+        """Record a drift event for emergence analysis"""
+        if not self._skill_emergence_enabled:
+            return
+        self._drift_detector.record_drift(
+            drift_id=f"{slug}-{state}-{len(self._drift_detector.collector._events)}",
+            drift_type=drift_type,
+            severity=severity,
+            run_id=slug,
+            state=state,
+            description=description,
+            **metadata,
+        )
+    
+    def check_emergence(self) -> List[dict]:
+        """Check for emergence candidates (3+ same drift type)
+        
+        Returns list of emergence candidates that qualify as skills."""
+        if not self._skill_emergence_enabled:
+            return []
+        
+        candidates = self._drift_detector.find_emergence_candidates(min_occurrences=3)
+        if not candidates:
+            return []
+        
+        drafts = self._skill_forge.generate_skills(min_confidence=0.65)
+        results = []
+        for draft in drafts:
+            saved = self._skill_forge.save_skill(draft)
+            results.append({
+                "name": draft.name,
+                "description": draft.description,
+                "confidence": draft.confidence,
+                "is_ready": draft.is_ready,
+                "saved": saved,
+                "skill_path": draft.skill_path,
+            })
+            # Hermes callback (if registered)
+            if saved and self._skill_callback:
+                try:
+                    self._skill_callback(draft)
+                except Exception as e:
+                    self.log.warning(f"Skill callback failed for {draft.name}: {e}")
+        
+        return results
+    
+    def on_skill_emerged(self, callback: Callable) -> None:
+        """Register a callback for when a skill is auto-generated.
+        Hermes plugin uses this to call skill_manage()."""
+        self._skill_callback = callback
+    
+    def record_drift_from_remediation(self, slug: str, from_state: str,
+                                       to_state: str, pattern_name: str) -> None:
+        """Record a drift event when auto-remediation triggers.
+        
+        Bridges C1 (Auto-Remediation) → C2 (Skill Emergence):
+        each remediation action creates a drift record for emergence analysis."""
+        drift_type = DriftType.VALIDATION
+        severity = DriftSeverity.HIGH
+        self.record_drift(
+            slug=slug,
+            drift_type=drift_type,
+            severity=severity,
+            state=to_state,
+            description=f"Auto-remediation triggered: {pattern_name} ({from_state}→{to_state})",
+            from_state=from_state,
+            remediation_pattern=pattern_name,
+        )
+    
     # ──────────────────────────────────────────────
     # Lifecycle
     # ──────────────────────────────────────────────
@@ -181,6 +271,12 @@ class AsyncEngine:
         self._tasks.append(asyncio.create_task(
             self._health_checker(), name="health-checker"
         ))
+        
+        # ── C3: Warm Agent Coordinator ──
+        if self._warm_agent_enabled:
+            self._agent_coordinator.setup_default_tasks(self)
+            await self._agent_coordinator.start()
+            self.log.info("Warm Agent Coordinator started")
 
         # Recovery: replay WAL on startup
         self._recover()
@@ -201,6 +297,10 @@ class AsyncEngine:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
             self._tasks.clear()
+        
+        # ── C3: Stop Warm Agent Coordinator ──
+        if self._warm_agent_enabled:
+            await self._agent_coordinator.stop()
 
         # Flush: compact WAL to snapshot
         snapshot = self.run_manager._load_snapshot()
@@ -509,6 +609,13 @@ class AsyncEngine:
             remediation = self._check_auto_remediation(slug, from_state, to_state)
             if remediation:
                 self.log.info(f"Auto-remediation triggered for {slug}: {remediation.get('signature', '?')}")
+                # C1 → C2 bridge: record drift from remediation
+                self.record_drift_from_remediation(
+                    slug=slug,
+                    from_state=from_state,
+                    to_state=to_state,
+                    pattern_name=remediation.get('signature', 'unknown'),
+                )
         except Exception as e:
             self.log.warning(f"Auto-remediation check failed: {e}")
 
@@ -745,6 +852,28 @@ class AsyncEngine:
             "total_runs": len(runs),
             "event_stores": len(self._event_stores),
             "total_cost": round(self.cost_tracker.total_usd, 4),
+        }
+    
+    # ── C3: Warm Agent Methods ─────────────────
+    
+    def agent_status(self) -> dict:
+        """Get Warm Agent Coordinator status"""
+        if not self._warm_agent_enabled:
+            return {"enabled": False, "message": "Warm Agent is disabled"}
+        return {
+            "enabled": True,
+            "coordinator": self._agent_coordinator.report().to_dict(),
+        }
+    
+    def agent_queue(self) -> dict:
+        """List all agent tasks with their status"""
+        if not self._warm_agent_enabled:
+            return {"enabled": False, "tasks": []}
+        tasks = self._agent_coordinator.list_tasks()
+        return {
+            "enabled": True,
+            "tasks": [t.to_dict() for t in tasks],
+            "count": len(tasks),
         }
 
 
