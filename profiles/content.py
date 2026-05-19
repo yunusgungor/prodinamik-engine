@@ -39,6 +39,11 @@ states:
           type: multiple_choice
           choices: ["Blog", "Newsletter", "Twitter/X", "Hepsi"]
           timeout: 300
+      resume_transitions:
+        Blog: brief_ready
+        Newsletter: brief_ready
+        "Twitter/X": brief_ready
+        Hepsi: brief_ready
 
   brief_ready:
     type: intermediate

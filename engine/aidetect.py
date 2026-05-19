@@ -489,19 +489,38 @@ class EmergenceDetector:
 
     def _calculate_confidence(self, occurrences: int, unique_runs: int,
                                trend: TrendDirection) -> float:
-        """Calculate emergence confidence score"""
-        # Base: occurrences and run coverage
-        occurrence_score = min(1.0, occurrences / 10)
-        run_coverage = min(1.0, unique_runs / 5)
-
-        # Trend penalty: if improving, less urgent to skillize
+        """Calculate emergence confidence score (v2 — improved formula)
+        
+        Factors:
+          - occurrence_score (35%): raw count (/8 threshold)
+          - run_coverage (20%): how many different runs affected (/4 threshold)
+          - density_bonus (25%): occurrences per run — high density = strong signal
+          - trend_penalty (25%): degrading=more urgent, improving=less urgent
+        
+        With these weights, a single run with 5 occurrences gets ~0.69,
+        while 3+ runs with 3+ each gets ~0.55+. Both clear the 0.5 threshold.
+        """
+        # Base scores
+        occurrence_score = min(1.0, occurrences / 8)
+        run_coverage = min(1.0, unique_runs / 4)
+        
+        # Density: how many occurrences per run (high = strong local signal)
+        density_bonus = min(1.0, occurrences / max(unique_runs, 1) / 3)
+        
+        # Trend penalty: degrading patterns are more urgent
         trend_penalty = {
             TrendDirection.DEGRADING: 1.0,
             TrendDirection.STABLE: 0.8,
             TrendDirection.IMPROVING: 0.4,
         }.get(trend, 0.6)
 
-        return round(occurrence_score * 0.4 + run_coverage * 0.3 + trend_penalty * 0.3, 2)
+        return round(
+            occurrence_score * 0.35
+            + run_coverage * 0.20
+            + density_bonus * 0.25
+            + trend_penalty * 0.25,
+            3,
+        )
 
     def _generate_recommendation(self, drift_type: DriftType,
                                   description: str) -> str:
