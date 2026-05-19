@@ -98,7 +98,7 @@ async def test_component_wiring(tmp_config):
     assert run.meta.slug in eng._state_entry_time
 
     # Transition → should record event
-    eng._do_transition(run.meta.slug, "idea_review")
+    eng._do_transition(run.meta.slug, "decide_route")
     events = store.get_all()
     assert len(events) >= 2  # created + transition
 
@@ -140,13 +140,13 @@ async def test_lifecycle_hooks(engine):
     assert len(calls["on_exit"]) == 0  # Not yet exited
 
     # Transition → on_exit should fire, then on_enter for new state
-    engine.hooks.register("idea_review", "on_enter", on_enter)
-    await engine.transition_async("hook-test", "idea_review")
+    engine.hooks.register("decide_route", "on_enter", on_enter)
+    await engine.transition_async("hook-test", "decide_route")
     await asyncio.sleep(0.05)
 
     assert len(calls["on_exit"]) == 1
-    assert calls["on_exit"][0] == ("hook-test", "captured", "idea_review")
-    assert len(calls["on_enter"]) == 2  # captured + idea_review
+    assert calls["on_exit"][0] == ("hook-test", "captured", "decide_route")
+    assert len(calls["on_enter"]) == 2  # captured + decide_route
 
     # Register timeout hook
     engine.hooks.register("idea_review", "on_timeout", on_timeout)
@@ -155,8 +155,8 @@ async def test_lifecycle_hooks(engine):
 
     # Verify stats
     stats = engine.hooks.stats
-    assert stats["total_hooks"] == 4  # captured:2 (on_enter, on_exit) + idea_review:2 (on_enter, on_timeout)
-    assert stats["states_with_hooks"] == 2
+    assert stats["total_hooks"] == 4  # captured:2 + decide_route:1 + idea_review:1
+    assert stats["states_with_hooks"] == 3
 
     await engine.stop()
 
@@ -264,7 +264,7 @@ async def test_graceful_shutdown(tmp_config):
 
     # Create some runs and transitions
     run = eng.create_run("content", "Shutdown Test", slug="shutdown-test")
-    eng._do_transition("shutdown-test", "idea_review")
+    eng._do_transition("shutdown-test", "decide_route")
 
     # Trigger budget tracking
     eng.cost_tracker.record_llm("deepseek-v4-flash", 100, 50,

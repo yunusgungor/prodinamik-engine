@@ -1,15 +1,15 @@
 """
-Prodinamik Engine v0.5 — Content Profile
+Prodinamik Engine v2.1 — Content Profile
 
 Content-OS'un ProductProfile olarak implementasyonu.
-9-state lifecycle: captured → idea_review → brief_ready → drafting →
-verification → draft_review → approved → published → archived
+10-state lifecycle: captured → decide_route → idea_review → brief_ready →
+drafting → verification → draft_review → approved → published → archived
 
-HITL (Human-In-The-Loop) v1.0:
-- idea_review: Kullanıcıya kanal seçimi sorulur
-- brief_ready: Brief onayı alınır
+HITL v1.1 (Türkçe uyumlu):
+- decide_route: Kullanıcıya kanal seçimi sorulur
+- brief_ready: Brief onayı alınır (Türkçe/İngilizce cevap destekli)
 - drafting: 3+ reentry'de tone önerisi
-- draft_review: PAUSE state — yayın onayı + drift uyarısı
+- draft_review: PAUSE state — yayın onayı + drift uyarısı + Türkçe/İngilizce
 
 T1 validators: SlopScan (107 pattern), LengthCheck, SchemaCheck
 Adapters: Buffer (Twitter), FileOutput (fallback)
@@ -18,11 +18,11 @@ Adapters: Buffer (Twitter), FileOutput (fallback)
 from engine.profile import ProductProfile, ValidatorDef, ValidatorTier, AdapterDef, Budget, StoreDef
 from engine.validators import RegexValidator, LengthValidator, SchemaValidator
 
-# Content state machine — 9 state, 11 transition + HITL
+# Content state machine — 10 state, 14 transition + HITL (Türkçe uyumlu)
 CONTENT_SM = """
 profile: content
 name: content-pipeline
-version: 2.0
+version: 2.1
 
 states:
   captured:
@@ -30,7 +30,7 @@ states:
     max_reentries: 1
     validators: ["IdeaCheck"]
 
-  idea_review:
+  decide_route:
     type: intermediate
     max_reentries: 3
     hitl:
@@ -40,10 +40,24 @@ states:
           choices: ["Blog", "Newsletter", "Twitter/X", "Hepsi"]
           timeout: 300
       resume_transitions:
-        Blog: brief_ready
-        Newsletter: brief_ready
-        "Twitter/X": brief_ready
-        Hepsi: brief_ready
+        Blog: idea_review
+        Newsletter: idea_review
+        "Twitter/X": idea_review
+        Hepsi: idea_review
+
+  idea_review:
+    type: intermediate
+    max_reentries: 3
+    hitl:
+      ask_user:
+        - question: "Fikir detaylarını inceledin mi? Devam edelim mi?"
+          type: yes_no
+          timeout: 300
+      resume_transitions:
+        "yes": brief_ready
+        "evet": brief_ready
+        "no": captured
+        "hayır": captured
 
   brief_ready:
     type: intermediate
@@ -60,7 +74,9 @@ states:
           on_timeout: proceed
       resume_transitions:
         "yes": drafting
-        "no": captured
+        "evet": drafting
+        "no": idea_review
+        "hayır": idea_review
 
   drafting:
     type: intermediate
@@ -101,8 +117,10 @@ states:
           on_timeout: hold
       resume_transitions:
         "yes": approved
+        "evet": approved
         "Yayınla": approved
         "no": drafting
+        "hayır": drafting
         "Düzelt": drafting
 
   approved:
@@ -118,9 +136,12 @@ states:
     max_reentries: 0
 
 transitions:
-  captured -> idea_review: {}
+  captured -> decide_route: {}
+  decide_route -> idea_review: {}
   idea_review -> brief_ready: {}
+  idea_review -> captured: {}
   brief_ready -> drafting: {}
+  brief_ready -> idea_review: {}
   drafting -> verification: {}
   drafting -> drafting: {condition: "drift_detected", action: "log_drift"}
   verification -> draft_review: {}
@@ -201,8 +222,8 @@ class ContentProfile(ProductProfile):
     """Content production pipeline (Content-OS v2.5.0 uyumlu)"""
 
     name = "content"
-    version = "2.0"
-    description = "Content production pipeline with 9-state lifecycle + HITL"
+    version = "2.1"
+    description = "Content production pipeline with 10-state lifecycle + HITL v1.1"
     state_machine_yaml = CONTENT_SM
 
     def setup_validators(self):
@@ -336,19 +357,44 @@ def demo():
 
     # Test HITL
     print(f"\n🔔 HITL Test:")
-    for state_name in ["idea_review", "brief_ready", "drafting", "draft_review"]:
+    for state_name in ["decide_route", "idea_review", "brief_ready", "drafting", "draft_review"]:
         hitl = sm.get_hitl_questions(state_name, rt)
         state_def = sm.config.states[state_name]
         is_pause = sm.is_pause_state(state_name)
-        pause_tag = "⏸️ PAUSE" if state_def.state_type.name == "PAUSE" else ""
-        print(f"   {state_name}: {len(hitl)} questions {'(' + pause_tag + ')' if pause_tag else ''}")
+        pause_tag = " ⏸️ PAUSE" if state_def.state_type.name == "PAUSE" else ""
+        print(f"   {state_name}: {len(hitl)} question(s){pause_tag}")
         for q in hitl:
             print(f"     - [{q['type']}] {q['question']}")
 
-    # Test resume_transitions
+    # Test resume_transitions — Türkçe/İngilizce uyumluluk
     print(f"\n🔄 Resume Transitions Test:")
-    for ans, expected in [("yes", "approved"), ("no", "drafting"),
-                           ("Yayınla", "approved"), ("Düzelt", "drafting")]:
+
+    # decide_route: multiple_choice
+    for ans, expected in [("Blog", "idea_review"), ("Twitter/X", "idea_review"),
+                           ("Hepsi", "idea_review")]:
+        result = sm.evaluate_resume_transition("decide_route", {"answer": ans})
+        status = "✅" if result == expected else "❌"
+        print(f"   decide_route + '{ans}' → {result} {status}")
+
+    # idea_review: yes_no (Türkçe/İngilizce)
+    for ans, expected in [("yes", "brief_ready"), ("evet", "brief_ready"),
+                           ("no", "captured"), ("hayır", "captured")]:
+        result = sm.evaluate_resume_transition("idea_review", {"answer": ans})
+        status = "✅" if result == expected else "❌"
+        print(f"   idea_review + '{ans}' → {result} {status}")
+
+    # brief_ready: yes_no (Türkçe/İngilizce)
+    for ans, expected in [("yes", "drafting"), ("evet", "drafting"),
+                           ("no", "idea_review"), ("hayır", "idea_review")]:
+        result = sm.evaluate_resume_transition("brief_ready", {"answer": ans})
+        status = "✅" if result == expected else "❌"
+        print(f"   brief_ready + '{ans}' → {result} {status}")
+
+    # draft_review: yes_no + multiple_choice (Türkçe/İngilizce)
+    for ans, expected in [("yes", "approved"), ("evet", "approved"),
+                           ("Yayınla", "approved"),
+                           ("no", "drafting"), ("hayır", "drafting"),
+                           ("Düzelt", "drafting")]:
         result = sm.evaluate_resume_transition("draft_review", {"answer": ans})
         status = "✅" if result == expected else "❌"
         print(f"   draft_review + '{ans}' → {result} {status}")

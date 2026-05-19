@@ -75,19 +75,19 @@ def test_content_profile():
     p.initialize()
 
     assert p.name == "content"
-    assert p.version == "2.0"
+    assert p.version == "2.1"
     assert p.state_machine is not None
     assert len(p.validators) == 3
     assert len(p.adapters) == 2
     assert len(p.stores) == 3
 
     sm = p.state_machine
-    assert len(sm.config.states) == 9
-    assert len(sm.config.transitions) == 11
+    assert len(sm.config.states) == 10
+    assert len(sm.config.transitions) == 14
 
     rt = sm.create_runtime()
     assert rt.current_state == "captured"
-    assert "idea_review" in sm.get_next_states("captured")
+    assert "decide_route" in sm.get_next_states("captured")
 
     # Slop validator
     slop = create_slop_validator()
@@ -290,7 +290,7 @@ def test_content_profile_valid():
     p.initialize()
     assert p.state_machine is not None
     assert p.name == "content"
-    assert len(p.state_machine.config.states) == 9
+    assert len(p.state_machine.config.states) == 10
     initial = p.state_machine.config.initial_states
     assert len(initial) >= 1
     assert initial[0].state_type.name == "INITIAL"

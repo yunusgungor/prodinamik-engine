@@ -754,14 +754,24 @@ class AsyncEngine:
             }
 
         # Hedef state'e geç
-        # Resume_transitions'tan geldiğimiz için condition'ı bypass et
-        # Kullanıcı cevabı zaten onay yerine geçer
+        # Akıllı condition override: sadece hedef state'in ihtiyaç duyduğu
+        # flag'leri set et (blunt "ikisini de set et" yerine)
+        overrides = {}
+        sm = profile.state_machine
+        transition_defs = sm.config.transitions if hasattr(sm, 'config') else []
+        for td in transition_defs:
+            if hasattr(td, 'from_state') and td.from_state == current_state and td.to_state == next_state:
+                if td.condition:
+                    # Transition'ın condition'ında hangi flag varsa onu set et
+                    if "human_approved" in td.condition:
+                        overrides["human_approved"] = True
+                    if "changes_requested" in td.condition:
+                        overrides["changes_requested"] = True
+                break
+
         try:
             run = self._do_transition(slug, next_state,
-                                      runtime_overrides={
-                                          "human_approved": True,
-                                          "changes_requested": True,
-                                      })
+                                      runtime_overrides=overrides if overrides else None)
         except ValueError as e:
             return {"status": "transition_failed", "message": str(e)}
 
