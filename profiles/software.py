@@ -65,7 +65,7 @@ states:
 transitions:
   spec -> prototyping: {type: REVERSIBLE}
   prototyping -> iteration: {type: REVERSIBLE, condition: "prototype_passes(spec)"}
-  iteration -> iteration: {type: REVERSIBLE, condition: "drift_detected", action: "log_drift"}
+  iteration -> iteration: {type: REVERSIBLE}
   iteration -> review: {type: REVERSIBLE, condition: "iterations >= 4"}
   iteration -> blocked: {type: REVERSIBLE, condition: "consecutive_failures >= 3"}
   iteration -> cancelled: {type: REVERSIBLE, condition: "max_iterations_exceeded"}

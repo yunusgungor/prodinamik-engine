@@ -57,6 +57,7 @@ class RunMeta:
     status: str = "active"
     state: str = ""
     version: int = 0             # Optimistic locking
+    iteration_count: int = 0     # Incremented on each iteration→X transition
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -239,7 +240,8 @@ class RunManager:
 
         return Run(
             meta=meta,
-            runtime=RuntimeState(current_state=meta.state, version=meta.version),
+            runtime=RuntimeState(current_state=meta.state, version=meta.version,
+                                 iteration_count=meta.iteration_count),
             profile=profile,
         )
 
@@ -294,12 +296,17 @@ class RunManager:
 
         from_state = meta.state
 
+        # Increment iteration counter when leaving iteration state
+        if from_state == "iteration":
+            meta.iteration_count += 1
+
         # State machine validasyonu (profile varsa)
         if profile and profile.state_machine:
             sm = profile.state_machine
             rt = RuntimeState(
                 current_state=from_state,
                 version=meta.version,
+                iteration_count=meta.iteration_count,
             )
             # Runtime overrides uygula (condition engine'i bypass için)
             if runtime_overrides:
@@ -588,6 +595,7 @@ class RunManager:
             f"status: {meta.status}\n"
             f"state: {meta.state}\n"
             f"version: {meta.version}\n"
+            f"iteration_count: {meta.iteration_count}\n"
             f"---\n"
         )
         co_path.write_text(content, encoding="utf-8")
@@ -620,6 +628,7 @@ class RunManager:
             status=meta.get("status", "active"),
             state=meta.get("state", ""),
             version=int(meta.get("version", 0)),
+            iteration_count=int(meta.get("iteration_count", 0)),
         )
 
     # ──────────────────────────────────────
