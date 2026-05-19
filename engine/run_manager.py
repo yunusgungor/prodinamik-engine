@@ -271,7 +271,8 @@ class RunManager:
     # ──────────────────────────────────────
 
     def update_state(self, slug: str, to_state: str,
-                     profile: ProductProfile = None) -> Run:
+                     profile: ProductProfile = None,
+                     runtime_overrides: Optional[Dict[str, Any]] = None) -> Run:
         """
         Run'ın state'ini güncelle.
 
@@ -279,6 +280,9 @@ class RunManager:
         2. WAL'a yaz
         3. Snapshot güncelle
         4. content-object.md güncelle
+
+        runtime_overrides: RuntimeState alanlarını override etmek için dict
+                          (örn: {"human_approved": True} — condition engine'i bypass)
         """
         run_path = self._run_path(slug)
         if not run_path.exists():
@@ -297,6 +301,11 @@ class RunManager:
                 current_state=from_state,
                 version=meta.version,
             )
+            # Runtime overrides uygula (condition engine'i bypass için)
+            if runtime_overrides:
+                for key, value in runtime_overrides.items():
+                    if hasattr(rt, key):
+                        setattr(rt, key, value)
             allowed, reason = sm.can_transition(from_state, to_state, rt)
             if not allowed:
                 raise ValueError(f"Transition {from_state} → {to_state} rejected: {reason}")

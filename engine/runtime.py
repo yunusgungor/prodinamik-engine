@@ -324,7 +324,8 @@ class AsyncEngine:
 
         return run
 
-    def _do_transition(self, slug: str, to_state: str) -> Run:
+    def _do_transition(self, slug: str, to_state: str,
+                       runtime_overrides: Dict[str, Any] = None) -> Run:
         """Internal: perform state transition with full wiring"""
         run = self.run_manager.get_run(slug)
         if not run:
@@ -338,8 +339,9 @@ class AsyncEngine:
         # on_exit hook (sync)
         self.hooks.trigger_sync(from_state, "on_exit", run.meta, from_state, to_state)
 
-        # Do transition
-        run = self.run_manager.update_state(slug, to_state, profile)
+        # Do transition (with runtime overrides if any)
+        run = self.run_manager.update_state(slug, to_state, profile,
+                                            runtime_overrides=runtime_overrides)
 
         # Record event
         store = self._get_event_store(slug)
