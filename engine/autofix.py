@@ -228,6 +228,35 @@ def create_default_patterns() -> List[FailureSignature]:
                             "configuration error", "missing config"],
             description="Configuration error",
         ),
+        # ── HITL-specific failure patterns ──
+        FailureSignature(
+            name="hitl_user_timeout",
+            failure_class=FailureClass.TIMEOUT,
+            match_patterns=["hitl timeout", "awaiting_input",
+                            "pause state", "user timeout"],
+            description="HITL PAUSE state timeout — user did not respond",
+        ),
+        FailureSignature(
+            name="hitl_repeated_rejection",
+            failure_class=FailureClass.STATE,
+            match_patterns=["repeated rejection", "changes_requested",
+                            "draft_review → drafting", "re-entry loop"],
+            description="HITL repeated rejection cycle detected",
+        ),
+        FailureSignature(
+            name="hitl_drift_escalation",
+            failure_class=FailureClass.VALIDATION,
+            match_patterns=["drift_count >=", "drift escalation",
+                            "excessive drift", "drift threshold"],
+            description="HITL drift threshold exceeded — quality degradation",
+        ),
+        FailureSignature(
+            name="hitl_chain_loop",
+            failure_class=FailureClass.STATE,
+            match_patterns=["hitl loop", "chain loop guard",
+                            "max hitl steps", "HITL loop limit"],
+            description="HITL chain-loop guard triggered",
+        ),
     ]
 
 

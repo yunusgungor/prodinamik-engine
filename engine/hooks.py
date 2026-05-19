@@ -30,7 +30,7 @@ class HookRegistry:
         registry.trigger("captured", "on_enter", run_meta, "captured")
     """
 
-    VALID_TYPES = {"on_enter", "on_exit", "on_timeout"}
+    VALID_TYPES = {"on_enter", "on_exit", "on_timeout", "on_hitl_timeout"}
 
     def __init__(self):
         # state -> hook_type -> [handler, ...]

@@ -22,6 +22,7 @@ from .cost import CostTracker
 from .degradation import DegradationManager, DegradationLevel
 from .budget import BudgetEnforcer
 from .safety import EventBus, RuntimeSafetyMonitor
+from .autofix import AutoRemediator, FailureMatcher
 from .state_machine import RuntimeState
 
 
@@ -103,8 +104,56 @@ class AsyncEngine:
         # Hooks registry: state_name → HookRegistry
         self.hooks = HookRegistry()
 
+        # HITL timeout callback'ları (Hermes plugin vs. register eder)
+        self._hitl_timeout_callbacks: List[Callable] = []
+        
+        # Auto-remediation
+        self._remediator = AutoRemediator()
+        self._auto_remediation_enabled = True
+        
         # Track visited states per slug for timeout calculation
         self._state_entry_time: Dict[str, Dict[str, datetime]] = {}
+
+    def on_hitl_timeout(self, callback: Callable):
+        """Register a HITL timeout callback (Hermes plugin kullanır)"""
+        self._hitl_timeout_callbacks.append(callback)
+
+    def _check_auto_remediation(self, slug: str, from_state: str, to_state: str) -> Optional[dict]:
+        """Check if auto-remediation is needed after a transition.
+        
+        Detects failure patterns like:
+        - Repeated rejections (draft_review → drafting loop)
+        - Drift escalation (drift_count too high)
+        - Chain loop guard triggered
+        """
+        if not self._auto_remediation_enabled:
+            return None
+        
+        # Detect repeated rejection loop (draft_review → drafting → draft_review)
+        if from_state == "draft_review" and to_state == "drafting":
+            snapshot = self.run_manager._load_snapshot()
+            slug_data = snapshot.get(slug, {})
+            rejection_count = slug_data.get("rejection_count", 0)
+            self.run_manager._update_snapshot(slug, {
+                "rejection_count": rejection_count + 1,
+            })
+            if rejection_count + 1 >= 3:
+                plan = self._remediator.create_plan("repeated rejection: draft_review → drafting loop")
+                if plan:
+                    self.log.info(f"Auto-remediation: {slug} repeated rejection ({rejection_count+1})")
+                    return plan.to_dict()
+        
+        # Detect drift escalation
+        run = self.run_manager.get_run(slug)
+        if run:
+            rt = RuntimeState(current_state=to_state)
+            if rt.drift_count >= 5:
+                plan = self._remediator.create_plan(f"drift escalation: drift_count={rt.drift_count}")
+                if plan:
+                    self.log.info(f"Auto-remediation: {slug} drift escalation ({rt.drift_count})")
+                    return plan.to_dict()
+        
+        return None
 
     # ──────────────────────────────────────────────
     # Lifecycle
@@ -221,8 +270,101 @@ class AsyncEngine:
                 # Trigger timeout hook
                 self.hooks.trigger_sync(meta.state, "on_timeout", meta, meta.state)
 
-                # Auto-transition to error state if defined
-                if state_def.temporal_on_timeout:
+                # ── HITL/PAUSE state timeout politikası ──
+                is_pause = (state_def.state_type.value == "pause" 
+                           if hasattr(state_def, 'state_type') else False)
+                on_timeout_policy = "proceed"  # default
+                
+                # HITL on_timeout policy'yi al
+                if state_def.hitl:
+                    on_timeout_policy = state_def.hitl.on_timeout
+                
+                # Escalation: elapsed süresine göre reminder seviyesi
+                reminder_level = ""
+                reminders = []
+                if hasattr(state_def, 'reminders'):
+                    reminders = state_def.reminders or []
+                for rem in reminders:
+                    if elapsed > rem.get("after", float('inf')):
+                        reminder_level = f"⏰ {rem.get('message', 'Reminder')}"
+                
+                if is_pause:
+                    self.log.info(
+                        f"HITL timeout: {meta.slug} in PAUSE state '{meta.state}'. "
+                        f"Policy: {on_timeout_policy}"
+                    )
+                    if reminder_level:
+                        self.log.info(f"   Reminder: {reminder_level}")
+                    
+                    # Send notification via engine hook registry
+                    self.hooks.trigger_sync(
+                        meta.state, "on_hitl_timeout", meta, meta.state,
+                        elapsed=elapsed, policy=on_timeout_policy,
+                        reminder=reminder_level,
+                    )
+                    
+                    # Send notification via external callbacks (Hermes plugin)
+                    for cb in self._hitl_timeout_callbacks:
+                        try:
+                            cb(
+                                slug=meta.slug,
+                                state=meta.state,
+                                elapsed=elapsed,
+                                policy=on_timeout_policy,
+                                reminder=reminder_level,
+                            )
+                        except Exception as e:
+                            self.log.warning(f"HITL timeout callback failed: {e}")
+                    
+                    # Apply on_timeout policy
+                    if on_timeout_policy == "proceed":
+                        # Proceed: find first available transition and take it
+                        sm = profile.state_machine
+                        next_states = sm.get_next_states(meta.state)
+                        for ns in next_states:
+                            if ns != meta.state:  # skip self-loop
+                                try:
+                                    self._do_transition(meta.slug, ns)
+                                    self.log.info(
+                                        f"HITL timeout auto-proceed: "
+                                        f"{meta.state} → {ns} (policy: proceed)"
+                                    )
+                                    break
+                                except ValueError:
+                                    continue
+                    elif on_timeout_policy == "abort":
+                        # Abort: transition to cancelled or first terminal state
+                        try:
+                            self._do_transition(meta.slug, "cancelled",
+                                                runtime_overrides={
+                                                    "project_abandoned": True,
+                                                })
+                            self.log.info(
+                                f"HITL timeout abort: {meta.state} → cancelled"
+                            )
+                        except ValueError:
+                            # Try archived
+                            try:
+                                self._do_transition(meta.slug, "archived")
+                            except ValueError:
+                                pass
+                    elif on_timeout_policy.startswith("default:"):
+                        # Default answer: use provided value
+                        default_value = on_timeout_policy.split(":", 1)[1]
+                        try:
+                            self.resume_run(meta.slug, {"answer": default_value})
+                            self.log.info(
+                                f"HITL timeout default answer: "
+                                f"'{default_value}' for {meta.state}"
+                            )
+                        except Exception as e:
+                            self.log.warning(
+                                f"HITL timeout default failed: {e}"
+                            )
+                    # "hold" = do nothing, keep waiting
+                
+                # Auto-transition to error state if defined (legacy)
+                if state_def.temporal_on_timeout and not is_pause:
                     try:
                         run = self._do_transition(meta.slug,
                                                   state_def.temporal_on_timeout)
@@ -362,6 +504,14 @@ class AsyncEngine:
         # on_enter hook (sync)
         self.hooks.trigger_sync(to_state, "on_enter", run.meta, to_state)
 
+        # Auto-remediation check
+        try:
+            remediation = self._check_auto_remediation(slug, from_state, to_state)
+            if remediation:
+                self.log.info(f"Auto-remediation triggered for {slug}: {remediation.get('signature', '?')}")
+        except Exception as e:
+            self.log.warning(f"Auto-remediation check failed: {e}")
+
         return run
 
     async def transition_async(self, slug: str, to_state: str) -> Run:
@@ -376,9 +526,21 @@ class AsyncEngine:
 
         1. State transition yap
         2. Yeni state HITL gerektiriyorsa soruları döndür
+        
+        Chain-loop guard: max 5 ardışık HITL adımını geçerse
+        otomatik olarak bypass eder ve normal transition yapar.
 
         Returns dict with awaiting_input, questions, etc.
         """
+        # Chain-loop guard: HITL döngü sayacını kontrol et
+        run_before = self.run_manager.get_run(slug)
+        current_hitl_count = 0
+        if run_before:
+            # Snapshot'tan hitl_loop_count oku
+            snapshot = self.run_manager._load_snapshot()
+            slug_data = snapshot.get(slug, {})
+            current_hitl_count = slug_data.get('hitl_loop_count', 0)
+        
         try:
             run = self._do_transition(slug, to_state)
         except ValueError as e:
@@ -392,6 +554,22 @@ class AsyncEngine:
             return {"success": True, "run_slug": slug, "current_state": current_state}
 
         if sm.is_pause_state(current_state):
+            # Chain-loop guard: max 5 HITL adımı
+            MAX_HITL_LOOP = 5
+            if current_hitl_count >= MAX_HITL_LOOP:
+                self.log.warning(
+                    f"Chain-loop guard: {slug} exceeded {MAX_HITL_LOOP} HITL steps. "
+                    f"Bypassing HITL at '{current_state}'."
+                )
+                return {
+                    "success": True,
+                    "run_slug": slug,
+                    "current_state": current_state,
+                    "awaiting_input": False,
+                    "chain_loop_guard": True,
+                    "message": f"Maksimum HITL adımı ({MAX_HITL_LOOP}) aşıldı. Otomatik devam ediliyor.",
+                }
+
             rt = RuntimeState(
                 current_state=current_state,
                 iteration_count=run.meta.iteration_count,
@@ -447,6 +625,14 @@ class AsyncEngine:
 
         # resume_transitions mapping'ine göre next state belirle
         next_state = sm.evaluate_resume_transition(current_state, answers)
+
+        # Chain-loop guard: HITL sayacını artır (snapshot'tan oku +1)
+        snapshot = self.run_manager._load_snapshot()
+        current_count = snapshot.get(slug, {}).get('hitl_loop_count', 0)
+        self.run_manager._update_snapshot(slug, {
+            "hitl_loop_count": current_count + 1,
+            "updated_at": datetime.now().isoformat(),
+        })
 
         if not next_state:
             # Mapping yoksa, cevapları kaydet ve agent'a bırak

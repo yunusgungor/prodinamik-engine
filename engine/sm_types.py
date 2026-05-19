@@ -173,6 +173,7 @@ class RuntimeState:
     awaiting_input: bool = False
     user_answers: dict = field(default_factory=dict)
     hitl_timeout_at: Optional[datetime] = None
+    hitl_loop_count: int = 0  # Chain-loop guard: maks HITL adımı
 
 
 # ──────────────────────────────────────────────
