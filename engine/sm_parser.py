@@ -6,11 +6,11 @@ Parses formal state machine definitions from YAML.
 
 import yaml
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .sm_types import (
     StateType, TransitionType, StateDefinition, TransitionDefinition,
-    LTLRule, StateMachineConfig,
+    LTLRule, StateMachineConfig, HITLConfig, AskDirective, ConditionalAsk,
 )
 
 
@@ -22,6 +22,7 @@ class StateMachineParser:
         "intermediate": StateType.INTERMEDIATE,
         "terminal": StateType.TERMINAL,
         "error": StateType.ERROR,
+        "pause": StateType.PAUSE,
     }
 
     TRANSITION_TYPE_MAP = {
@@ -67,6 +68,7 @@ class StateMachineParser:
                 temporal_on_timeout=s.get("temporal", {}).get("on_timeout"),
                 reminders=s.get("temporal", {}).get("reminders", []),
                 requires_manual=s.get("requires_manual", False),
+                hitl=cls._parse_hitl(s.get("hitl", {})),
             )
 
         transitions = []
@@ -107,4 +109,42 @@ class StateMachineParser:
             transitions=transitions,
             ltl_rules=ltl_rules,
             max_steps=max_steps,
+        )
+
+    @classmethod
+    def _parse_hitl(cls, hitl_raw: dict) -> Optional[HITLConfig]:
+        """Parse HITL config from YAML dict"""
+        if not hitl_raw:
+            return None
+
+        ask_user = []
+        for au in hitl_raw.get("ask_user", []):
+            if isinstance(au, str):
+                ask_user.append(AskDirective(question=au))
+            elif isinstance(au, dict):
+                ask_user.append(AskDirective(
+                    question=au.get("question", ""),
+                    type=au.get("type", "open"),
+                    choices=au.get("choices", []),
+                    required=au.get("required", True),
+                    timeout_seconds=au.get("timeout", 300),
+                ))
+
+        ask_if = []
+        for ai in hitl_raw.get("ask_if", []):
+            if isinstance(ai, dict):
+                ask_if.append(ConditionalAsk(
+                    condition=ai.get("condition", ""),
+                    question=ai.get("question", ""),
+                    type=ai.get("type", "yes_no"),
+                    choices=ai.get("choices", []),
+                    on_timeout=ai.get("on_timeout", "proceed"),
+                ))
+
+        return HITLConfig(
+            pause=hitl_raw.get("pause", False),
+            ask_user=ask_user,
+            ask_if=ask_if,
+            on_timeout=hitl_raw.get("on_timeout", "proceed"),
+            resume_transitions=hitl_raw.get("resume_transitions", {}),
         )

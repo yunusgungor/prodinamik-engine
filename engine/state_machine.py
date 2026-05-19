@@ -275,6 +275,13 @@ class StateMachine:
                         f"exceeded for state '{to_state}'"
                     )
 
+        # PAUSE state kontrolü: pause state'e geçiş HITL değerlendirmesi gerektirir
+        if runtime:
+            target_def = self.config.states.get(to_state)
+            if target_def and target_def.state_type == StateType.PAUSE:
+                # Pause state'e geçiş izni ver — HITL soruları transition sonrası engine'de değerlendirilir
+                pass
+
         # LTL evaluation (before condition check, optional)
         if runtime and ltl_runtime is not None:
             try:
@@ -362,10 +369,10 @@ class StateMachine:
             'human_approved': lambda r: bool(r.human_approved),
             'drift_detected': lambda r: r.drift_count > 0,
             'consecutive_failures': lambda r: r.consecutive_failures > 0,
-            # These are always false in current RuntimeState (external signals)
-            'changes_requested': lambda r: False,
-            'manual_unblock': lambda r: False,
-            'project_abandoned': lambda r: False,
+            # These can be set via runtime_overrides on RuntimeState
+            'changes_requested': lambda r: bool(getattr(r, 'changes_requested', False)),
+            'manual_unblock': lambda r: bool(getattr(r, 'manual_unblock', False)),
+            'project_abandoned': lambda r: bool(getattr(r, 'project_abandoned', False)),
             'max_iterations_exceeded': lambda r: r.total_iterations > r.iteration_count,
         }
         if base_cond in field_map:
@@ -488,6 +495,88 @@ class StateMachine:
                     return False, f"LTL condition '{expr}' not met"
 
         return True, "All LTL rules satisfied"
+
+    # ──────────────────────────────────────
+    # HITL (Human-In-The-Loop) — Soru Değerlendirme
+    # ──────────────────────────────────────
+
+    def get_hitl_questions(self, state_name: str, runtime: RuntimeState) -> List[dict]:
+        """Bir state için kullanıcıya sorulması gereken soruları döndür.
+        
+        Hem 'ask_user' (sabit) hem 'ask_if' (koşullu) soruları değerlendirir.
+        """
+        state_def = self.config.states.get(state_name)
+        if not state_def or not state_def.hitl:
+            return []
+
+        hitl = state_def.hitl
+        questions = []
+
+        # 1. Sabit sorular (Seviye 1)
+        for au in hitl.ask_user:
+            questions.append({
+                "question": au.question,
+                "type": au.type,
+                "choices": au.choices,
+                "required": au.required,
+                "timeout": au.timeout_seconds,
+                "source": "ask_user",
+            })
+
+        # 2. Koşullu sorular (Seviye 2) — condition değerlendir
+        for ai in hitl.ask_if:
+            try:
+                if self._evaluate_condition(ai.condition, runtime):
+                    questions.append({
+                        "question": ai.question,
+                        "type": ai.type,
+                        "choices": ai.choices,
+                        "on_timeout": ai.on_timeout,
+                        "source": "ask_if",
+                        "condition": ai.condition,
+                    })
+            except Exception:
+                # Condition başarısız olursa soruyu atla
+                pass
+
+        return questions
+
+    def evaluate_resume_transition(self, state_name: str,
+                                    answers: dict) -> Optional[str]:
+        """Kullanıcı cevaplarına göre bir sonraki state'i belirle.
+        
+        resume_transitions mapping'ine bakar.
+        Eşleşme yoksa None döner (engine default davranışı kullanır).
+        """
+        state_def = self.config.states.get(state_name)
+        if not state_def or not state_def.hitl:
+            return None
+
+        resume_map = state_def.hitl.resume_transitions
+        if not resume_map:
+            return None
+
+        # Önce tam eşleşme ara
+        for answer_value, target_state in resume_map.items():
+            if answer_value in answers.values():
+                return target_state
+
+        # Wildcard: '*' ile eşleşen varsa
+        if '*' in resume_map:
+            return resume_map['*']
+
+        return None
+
+    def is_pause_state(self, state_name: str) -> bool:
+        """Bu state bir HITL pause noktası mı?"""
+        state_def = self.config.states.get(state_name)
+        if not state_def:
+            return False
+        if state_def.state_type == StateType.PAUSE:
+            return True
+        if state_def.hitl and state_def.hitl.has_questions():
+            return True
+        return False
 
     def get_transition_type(self, from_state: str, to_state: str) -> TransitionType:
         with self._lock:

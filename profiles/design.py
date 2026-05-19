@@ -5,6 +5,13 @@ UI/UX tasarım pipeline'ı.
 8-state lifecycle: brief → research → sketch → wireframe →
 mockup → prototype → review → handoff
 
+HITL (Human-In-The-Loop) v1.0:
+- brief: Brief onayı
+- research: Araştırma yönlendirmesi
+- wireframe: Wireframe onayı
+- prototype: Prototip review
+- review: PAUSE state — handoff onayı
+
 Validators: accessibility check, design system compliance, responsive check
 Adapters: Figma API, PNG export, Zeplin
 """
@@ -14,7 +21,7 @@ from engine.profile import ProductProfile, ValidatorDef, ValidatorTier, AdapterD
 DESIGN_SM = """
 profile: design
 name: design-pipeline
-version: 1.0
+version: 2.0
 
 formal_properties:
   termination:
@@ -26,37 +33,79 @@ states:
     max_reentries: 1
     timeout: 172800
     validators: ["BriefCheck"]
+    hitl:
+      ask_user:
+        - question: "Brief'i onaylıyor musun?"
+          type: yes_no
+          timeout: 86400
+      resume_transitions:
+        "yes": research
+        "no": brief
 
   research:
     type: intermediate
     max_reentries: 3
     timeout: 259200
     validators: ["ResearchCheck"]
+    hitl:
+      ask_user:
+        - question: "Hangi tasarım yönünü keşfedelim?"
+          type: multiple_choice
+          choices: ["Mevcut tasarım sistemine uygun", "Yeni ve deneysel", "Rakip analizi bazlı"]
+          timeout: 86400
 
   sketch:
     type: intermediate
     max_reentries: 5
     timeout: 172800
+    hitl:
+      ask_if:
+        - condition: "reentry_count >= 3"
+          question: "3. sketch denemesi. Wireframe'e geçmek ister misin?"
+          type: yes_no
+          on_timeout: proceed
 
   wireframe:
     type: intermediate
     max_reentries: 5
     timeout: 172800
+    hitl:
+      ask_user:
+        - question: "Wireframe onaylıyor musun?"
+          type: yes_no
+          timeout: 86400
+      resume_transitions:
+        "yes": mockup
+        "no": sketch
 
   mockup:
     type: intermediate
     max_reentries: 8
     timeout: 259200
     validators: ["AccessibilityCheck", "DesignSystemCheck"]
+    hitl:
+      ask_if:
+        - condition: "drift_count > 0"
+          question: "Görsel tasarımda değişiklik var. Prototip'e geçmeden önce onaylıyor musun?"
+          type: yes_no
+          on_timeout: hold
 
   prototype:
     type: intermediate
     max_reentries: 8
     timeout: 345600
     validators: ["ResponsiveCheck", "InteractionCheck"]
+    hitl:
+      ask_user:
+        - question: "Prototip review'e hazır mı?"
+          type: yes_no
+          timeout: 172800
+      resume_transitions:
+        "yes": review
+        "no": mockup
 
   review:
-    type: intermediate
+    type: pause
     max_reentries: null
     timeout: 604800
     temporal:
@@ -66,6 +115,23 @@ states:
           message: "Design review 1 gündür bekliyor"
         - after: 172800
           message: "2 gündür review'da, escalation"
+    hitl:
+      ask_user:
+        - question: "Tasarımı onaylıyor musun?"
+          type: yes_no
+          timeout: 259200
+      ask_if:
+        - condition: "reentry_count > 0"
+          question: "Bu review'a 2. kez geliyoruz. Major revizyon mu yoksa minor fix mi?"
+          type: multiple_choice
+          choices: ["Onayla", "Minor fix", "Major revizyon"]
+          on_timeout: hold
+      resume_transitions:
+        "yes": handoff
+        "Onayla": handoff
+        "Minor fix": prototype
+        "Major revizyon": wireframe
+        "no": prototype
 
   handoff:
     type: terminal
@@ -92,8 +158,8 @@ class DesignProfile(ProductProfile):
     """UI/UX design pipeline"""
 
     name = "design"
-    version = "1.0"
-    description = "UI/UX design: brief → research → sketch → wireframe → mockup → prototype → review → handoff"
+    version = "2.0"
+    description = "UI/UX design: brief → research → sketch → wireframe → mockup → prototype → review → handoff + HITL"
     state_machine_yaml = DESIGN_SM
 
     def setup_validators(self):
@@ -177,6 +243,18 @@ def demo():
     print(f"   Total states: {len(sm.config.states)}")
     print(f"   Total transitions: {len(sm.config.transitions)}")
 
+    # Test HITL
+    print(f"\n🔔 HITL Test:")
+    for state_name in ["brief", "research", "wireframe", "prototype", "review"]:
+        hitl = sm.get_hitl_questions(state_name, rt)
+        is_pause = sm.is_pause_state(state_name)
+        state_def = sm.config.states[state_name]
+        pause_tag = "⏸️ PAUSE" if state_def.state_type.name == "PAUSE" else ""
+        print(f"   {state_name}: {len(hitl)} questions {'(' + pause_tag + ')' if pause_tag else ''}")
+        for q in hitl:
+            choices_str = f" [{', '.join(q['choices'])}]" if q.get('choices') else ""
+            print(f"     - [{q['type']}] {q['question']}{choices_str}")
+
     # Test forward path
     path = ["brief", "research", "sketch", "wireframe", "mockup",
             "prototype", "review", "handoff"]
@@ -201,10 +279,6 @@ def demo():
     # Test terminal constraint
     allowed, reason = sm.can_transition("handoff", "review", rt)
     print(f"   handoff → review: {'✅' if allowed else '❌'} ({reason})")
-
-    # Test drift loop
-    allowed, reason = sm.can_transition("sketch", "sketch", rt)
-    print(f"   sketch → sketch (drift): {'✅' if allowed else '❌'}")
 
     print(f"\n{'='*50}")
     print(f"DesignProfile demo passed!")

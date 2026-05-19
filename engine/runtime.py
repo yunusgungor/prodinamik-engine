@@ -22,6 +22,7 @@ from .cost import CostTracker
 from .degradation import DegradationManager, DegradationLevel
 from .budget import BudgetEnforcer
 from .safety import EventBus, RuntimeSafetyMonitor
+from .state_machine import RuntimeState
 
 
 # ──────────────────────────────────────────────
@@ -368,6 +369,130 @@ class AsyncEngine:
         # _do_transition handles all sync hooks internally
         run = self._do_transition(slug, to_state)
         return run
+
+    def transition_with_hitl(self, slug: str, to_state: str,
+                              answers: dict = None) -> dict:
+        """Transition + HITL kontrolü.
+
+        1. State transition yap
+        2. Yeni state HITL gerektiriyorsa soruları döndür
+
+        Returns dict with awaiting_input, questions, etc.
+        """
+        try:
+            run = self._do_transition(slug, to_state)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+
+        profile = self._get_profile(run.meta.profile)
+        sm = profile.state_machine if profile else None
+        current_state = run.meta.state
+
+        if not sm:
+            return {"success": True, "run_slug": slug, "current_state": current_state}
+
+        if sm.is_pause_state(current_state):
+            rt = RuntimeState(
+                current_state=current_state,
+                iteration_count=run.meta.iteration_count,
+                user_answers=answers or {},
+            )
+            questions = sm.get_hitl_questions(current_state, rt)
+            if questions:
+                state_def = sm.config.states.get(current_state)
+                timeout = 300
+                if state_def and state_def.hitl:
+                    for au in state_def.hitl.ask_user:
+                        timeout = max(timeout, au.timeout_seconds)
+
+                return {
+                    "success": True,
+                    "run_slug": slug,
+                    "current_state": current_state,
+                    "awaiting_input": True,
+                    "questions": questions,
+                    "timeout": timeout,
+                    "message": f"Run '{slug}' paused at '{current_state}' — waiting for your input.",
+                }
+
+        return {
+            "success": True,
+            "run_slug": slug,
+            "current_state": current_state,
+            "awaiting_input": False,
+        }
+
+    def resume_run(self, slug: str, answers: dict) -> dict:
+        """Resume a paused run with user answers.
+
+        HITL: Kullanıcı cevaplarını al, resume_transitions'a göre
+        bir sonraki state'i belirle ve geçiş yap.
+        """
+        run = self.run_manager.get_run(slug)
+        if not run:
+            raise ValueError(f"Run '{slug}' not found")
+
+        profile = self._get_profile(run.meta.profile)
+        if not profile or not profile.state_machine:
+            raise ValueError(f"Profile for run '{slug}' not found or has no state machine")
+
+        sm = profile.state_machine
+        current_state = run.meta.state
+
+        if not sm.is_pause_state(current_state):
+            return {
+                "status": "not_paused",
+                "message": f"Run '{slug}' current state '{current_state}' is not a pause state",
+            }
+
+        # resume_transitions mapping'ine göre next state belirle
+        next_state = sm.evaluate_resume_transition(current_state, answers)
+
+        if not next_state:
+            # Mapping yoksa, cevapları kaydet ve agent'a bırak
+            self.run_manager._update_snapshot(slug, {
+                "user_answers": answers,
+                "updated_at": datetime.now().isoformat(),
+            })
+            return {
+                "status": "answers_recorded",
+                "message": "Answers recorded. No automatic transition defined.",
+                "answers": answers,
+            }
+
+        # Hedef state'e geç
+        # Resume_transitions'tan geldiğimiz için condition'ı bypass et
+        # Kullanıcı cevabı zaten onay yerine geçer
+        try:
+            run = self._do_transition(slug, next_state,
+                                      runtime_overrides={
+                                          "human_approved": True,
+                                          "changes_requested": True,
+                                      })
+        except ValueError as e:
+            return {"status": "transition_failed", "message": str(e)}
+
+        # Yeni state de pause ise soruları döndür
+        if sm.is_pause_state(next_state):
+            rt = RuntimeState(
+                current_state=next_state,
+                iteration_count=run.meta.iteration_count,
+            )
+            questions = sm.get_hitl_questions(next_state, rt)
+            if questions:
+                return {
+                    "status": "awaiting_input",
+                    "run_slug": slug,
+                    "current_state": next_state,
+                    "questions": questions,
+                }
+
+        return {
+            "status": "transitioned",
+            "run_slug": slug,
+            "from_state": current_state,
+            "to_state": next_state,
+        }
 
     # ──────────────────────────────────────────────
     # Helpers

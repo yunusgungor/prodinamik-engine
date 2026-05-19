@@ -28,11 +28,45 @@ class StateType(Enum):
     INTERMEDIATE = "intermediate"
     TERMINAL = "terminal"
     ERROR = "error"
+    PAUSE = "pause"  # Human-in-the-loop: kullanıcı cevabı bekler
 
 
 # ──────────────────────────────────────────────
 # Data Classes
 # ──────────────────────────────────────────────
+
+@dataclass
+class AskDirective:
+    """State-level soru direktifi — kullanıcıya sorulacak soru"""
+    question: str
+    type: str = "open"           # "yes_no" | "multiple_choice" | "open"
+    choices: List[str] = field(default_factory=list)
+    required: bool = True
+    timeout_seconds: int = 300   # Cevap gelmezse timeout politikası devreye girer
+
+
+@dataclass
+class ConditionalAsk:
+    """Koşullu soru — sadece belli bir condition sağlanırsa sorulur"""
+    condition: str
+    question: str
+    type: str = "yes_no"
+    choices: List[str] = field(default_factory=list)
+    on_timeout: str = "proceed"  # "proceed" | "hold" | "abort" | "default:<value>"
+
+
+@dataclass
+class HITLConfig:
+    """Human-In-The-Loop konfigürasyonu — state seviyesinde"""
+    pause: bool = False                          # Bu state bir bekleme noktası mı?
+    ask_user: List[AskDirective] = field(default_factory=list)    # Sabit sorular
+    ask_if: List[ConditionalAsk] = field(default_factory=list)    # Koşullu sorular
+    on_timeout: str = "proceed"                  # Cevap gelmezse ne olacak?
+    resume_transitions: Dict[str, str] = field(default_factory=dict)  # Cevap → state mapping
+
+    def has_questions(self) -> bool:
+        return bool(self.ask_user) or bool(self.ask_if)
+
 
 @dataclass
 class StateDefinition:
@@ -48,6 +82,7 @@ class StateDefinition:
     temporal_on_timeout: Optional[str] = None
     reminders: List[dict] = field(default_factory=list)
     requires_manual: bool = False
+    hitl: Optional[HITLConfig] = None  # Human-In-The-Loop config
 
     def __post_init__(self):
         if self.state_type == StateType.TERMINAL and self.max_reentries is not None:
@@ -129,7 +164,15 @@ class RuntimeState:
     human_approved: bool = False
     consecutive_failures: int = 0
     total_iterations: int = 0
+    changes_requested: bool = False
+    manual_unblock: bool = False
+    project_abandoned: bool = False
     ltl_history: dict = field(default_factory=dict)
+    
+    # HITL fields
+    awaiting_input: bool = False
+    user_answers: dict = field(default_factory=dict)
+    hitl_timeout_at: Optional[datetime] = None
 
 
 # ──────────────────────────────────────────────

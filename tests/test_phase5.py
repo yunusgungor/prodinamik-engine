@@ -75,7 +75,7 @@ def test_content_profile():
     p.initialize()
 
     assert p.name == "content"
-    assert p.version == "1.0"
+    assert p.version == "2.0"
     assert p.state_machine is not None
     assert len(p.validators) == 3
     assert len(p.adapters) == 2
@@ -113,7 +113,7 @@ def test_software_profile():
     p.initialize()
 
     assert p.name == "software"
-    assert p.version == "1.0"
+    assert p.version == "2.0"
     assert p.state_machine is not None
     assert len(p.validators) == 4
     assert len(p.adapters) == 2

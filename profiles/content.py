@@ -5,6 +5,12 @@ Content-OS'un ProductProfile olarak implementasyonu.
 9-state lifecycle: captured → idea_review → brief_ready → drafting →
 verification → draft_review → approved → published → archived
 
+HITL (Human-In-The-Loop) v1.0:
+- idea_review: Kullanıcıya kanal seçimi sorulur
+- brief_ready: Brief onayı alınır
+- drafting: 3+ reentry'de tone önerisi
+- draft_review: PAUSE state — yayın onayı + drift uyarısı
+
 T1 validators: SlopScan (107 pattern), LengthCheck, SchemaCheck
 Adapters: Buffer (Twitter), FileOutput (fallback)
 """
@@ -12,8 +18,115 @@ Adapters: Buffer (Twitter), FileOutput (fallback)
 from engine.profile import ProductProfile, ValidatorDef, ValidatorTier, AdapterDef, Budget, StoreDef
 from engine.validators import RegexValidator, LengthValidator, SchemaValidator
 
-# Content state machine — 9 state, 11 transition
+# Content state machine — 9 state, 11 transition + HITL
 CONTENT_SM = """
+profile: content
+name: content-pipeline
+version: 2.0
+
+states:
+  captured:
+    type: initial
+    max_reentries: 1
+    validators: ["IdeaCheck"]
+
+  idea_review:
+    type: intermediate
+    max_reentries: 3
+    hitl:
+      ask_user:
+        - question: "Bu fikri hangi kanalda yayınlamalıyız?"
+          type: multiple_choice
+          choices: ["Blog", "Newsletter", "Twitter/X", "Hepsi"]
+          timeout: 300
+
+  brief_ready:
+    type: intermediate
+    max_reentries: 5
+    hitl:
+      ask_user:
+        - question: "Brief'i onaylıyor musun?"
+          type: yes_no
+          timeout: 300
+      ask_if:
+        - condition: "reentry_count >= 2"
+          question: "3. kez brief düzenliyorsun. Konuyu değiştirmek ister misin?"
+          type: yes_no
+          on_timeout: proceed
+      resume_transitions:
+        "yes": drafting
+        "no": captured
+
+  drafting:
+    type: intermediate
+    max_reentries: 10
+    validators: ["DraftValidator"]
+    hitl:
+      ask_if:
+        - condition: "reentry_count >= 3"
+          question: "Tone doğru mu? Daha resmi mi samimi mi olsun?"
+          type: multiple_choice
+          choices: ["Resmi", "Samimi", "Teknik"]
+          on_timeout: proceed
+
+  verification:
+    type: intermediate
+    max_reentries: 10
+    validators: ["SlopScanT1", "LengthCheck", "SchemaCheck"]
+
+  draft_review:
+    type: pause
+    max_reentries: null
+    temporal:
+      max_idle: 259200
+      reminders:
+        - after: 86400
+          message: "Review bekliyor"
+          channel: "telegram"
+    hitl:
+      ask_user:
+        - question: "Yazı yayına hazır mı?"
+          type: yes_no
+          timeout: 86400
+      ask_if:
+        - condition: "drift_count > 0"
+          question: "Drift tespit edildi. Yine de yayınlamak istiyor musun, yoksa düzeltme turu mu atalım?"
+          type: multiple_choice
+          choices: ["Yayınla", "Düzelt"]
+          on_timeout: hold
+      resume_transitions:
+        "yes": approved
+        "Yayınla": approved
+        "no": drafting
+        "Düzelt": drafting
+
+  approved:
+    type: intermediate
+    max_reentries: 1
+
+  published:
+    type: intermediate
+    max_reentries: 1
+
+  archived:
+    type: terminal
+    max_reentries: 0
+
+transitions:
+  captured -> idea_review: {}
+  idea_review -> brief_ready: {}
+  brief_ready -> drafting: {}
+  drafting -> verification: {}
+  drafting -> drafting: {condition: "drift_detected", action: "log_drift"}
+  verification -> draft_review: {}
+  verification -> drafting: {condition: "drift_detected", action: "log_drift"}
+  draft_review -> approved: {condition: "human_approved"}
+  draft_review -> drafting: {condition: "changes_requested"}
+  approved -> published: {}
+  published -> archived: {}
+"""
+
+CONTENT_SM_V1 = """
 profile: content
 name: content-pipeline
 version: 1.0
@@ -83,8 +196,8 @@ class ContentProfile(ProductProfile):
     """Content production pipeline (Content-OS v2.5.0 uyumlu)"""
 
     name = "content"
-    version = "1.0"
-    description = "Content production pipeline with 9-state lifecycle"
+    version = "2.0"
+    description = "Content production pipeline with 9-state lifecycle + HITL"
     state_machine_yaml = CONTENT_SM
 
     def setup_validators(self):
@@ -128,6 +241,38 @@ class ContentProfile(ProductProfile):
                          path="stores/proof/", required=False))
         self.add_store(StoreDef(name="ideas", type="markdown",
                          path="stores/ideas/", required=False))
+
+
+# ──────────────────────────────────────────────
+# Migration: v1.0 → v2.0 (Content Profile)
+# ──────────────────────────────────────────────
+
+class ContentMigrationPlan:
+    """v1.0 → v2.0 migration: draft_review state type changed to 'pause' + HITL"""
+
+    V1_TO_V2 = {
+        "state_map": {
+            "captured": "captured",
+            "idea_review": "idea_review",
+            "brief_ready": "brief_ready",
+            "drafting": "drafting",
+            "verification": "verification",
+            "draft_review": "draft_review",
+            "approved": "approved",
+            "published": "published",
+            "archived": "archived",
+        },
+        "state_changes": {
+            "draft_review": {
+                "type": "pause",  # was: intermediate
+                "added_hitl": True,
+            },
+            "idea_review": {"added_hitl": True},
+            "brief_ready": {"added_hitl": True},
+            "drafting": {"added_hitl": True},
+        },
+        "backward_compatible": True,
+    }
 
 
 # ──────────────────────────────────────────────
@@ -183,6 +328,25 @@ def demo():
     print(f"   Next states: {sm.get_next_states('captured')}")
     print(f"   Total states: {len(sm.config.states)}")
     print(f"   Total transitions: {len(sm.config.transitions)}")
+
+    # Test HITL
+    print(f"\n🔔 HITL Test:")
+    for state_name in ["idea_review", "brief_ready", "drafting", "draft_review"]:
+        hitl = sm.get_hitl_questions(state_name, rt)
+        state_def = sm.config.states[state_name]
+        is_pause = sm.is_pause_state(state_name)
+        pause_tag = "⏸️ PAUSE" if state_def.state_type.name == "PAUSE" else ""
+        print(f"   {state_name}: {len(hitl)} questions {'(' + pause_tag + ')' if pause_tag else ''}")
+        for q in hitl:
+            print(f"     - [{q['type']}] {q['question']}")
+
+    # Test resume_transitions
+    print(f"\n🔄 Resume Transitions Test:")
+    for ans, expected in [("yes", "approved"), ("no", "drafting"),
+                           ("Yayınla", "approved"), ("Düzelt", "drafting")]:
+        result = sm.evaluate_resume_transition("draft_review", {"answer": ans})
+        status = "✅" if result == expected else "❌"
+        print(f"   draft_review + '{ans}' → {result} {status}")
 
     # Test slop validator
     slop = create_slop_validator()

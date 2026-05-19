@@ -6,6 +6,12 @@ Akademik araştırma pipeline'ı.
 experiment_design → data_collection → analysis → paper_draft →
 peer_review → published → archived
 
+HITL (Human-In-The-Loop) v1.0:
+- topic_selected: Konu onayı
+- hypothesis: Hipotez seçimi
+- paper_draft: Makale taslak onayı
+- peer_review: PAUSE state — yayın onayı
+
 Validators: citation check, methodology consistency, statistical significance
 Adapters: arXiv, PDF export, Zotero
 """
@@ -15,7 +21,7 @@ from engine.profile import ProductProfile, ValidatorDef, ValidatorTier, AdapterD
 RESEARCH_SM = """
 profile: research
 name: research-pipeline
-version: 1.0
+version: 2.0
 
 formal_properties:
   termination:
@@ -27,24 +33,54 @@ states:
     max_reentries: 1
     timeout: 604800
     validators: ["ScopeCheck"]
+    hitl:
+      ask_user:
+        - question: "Araştırma konusunu onaylıyor musun?"
+          type: yes_no
+          timeout: 86400
+      resume_transitions:
+        "yes": literature_review
+        "no": topic_selected
 
   literature_review:
     type: intermediate
     max_reentries: 5
     timeout: 1209600
     validators: ["CitationCheck"]
+    hitl:
+      ask_if:
+        - condition: "reentry_count >= 3"
+          question: "Literatür taraması 3. kez revize ediliyor. Kapsamı daraltmak ister misin?"
+          type: yes_no
+          on_timeout: proceed
 
   hypothesis:
     type: intermediate
     max_reentries: 3
     timeout: 604800
     validators: ["MethodologyCheck"]
+    hitl:
+      ask_user:
+        - question: "Hangi hipotezle devam edelim?"
+          type: multiple_choice
+          choices: ["Hipotez A (null hipotez)", "Hipotez B (alternatif)", "Henüz karar vermedim"]
+          timeout: 604800
+      resume_transitions:
+        "Hipotez A (null hipotez)": experiment_design
+        "Hipotez B (alternatif)": experiment_design
+        "Henüz karar vermedim": literature_review
 
   experiment_design:
     type: intermediate
     max_reentries: 5
     timeout: 1209600
     validators: ["StatisticalCheck"]
+    hitl:
+      ask_if:
+        - condition: "drift_count > 0"
+          question: "Deney tasarımında değişiklik var. Devam edelim mi?"
+          type: yes_no
+          on_timeout: hold
 
   data_collection:
     type: intermediate
@@ -60,9 +96,17 @@ states:
     type: intermediate
     max_reentries: 10
     timeout: 2592000
+    hitl:
+      ask_user:
+        - question: "Makale taslağı peer review'a hazır mı?"
+          type: yes_no
+          timeout: 604800
+      resume_transitions:
+        "yes": peer_review
+        "no": paper_draft
 
   peer_review:
-    type: intermediate
+    type: pause
     max_reentries: null
     timeout: 2592000
     temporal:
@@ -72,6 +116,19 @@ states:
           message: "Peer review 3 gündür bekliyor"
         - after: 604800
           message: "1 haftadır review'da, escalation"
+    hitl:
+      ask_user:
+        - question: "Makaleyi yayınlıyor muyuz?"
+          type: yes_no
+          timeout: 604800
+      ask_if:
+        - condition: "reentry_count > 0"
+          question: "Revizyon sonrası tekrar review'da. Yayına hazır mı?"
+          type: yes_no
+          on_timeout: hold
+      resume_transitions:
+        "yes": published
+        "no": paper_draft
 
   published:
     type: intermediate
@@ -104,8 +161,8 @@ class ResearchProfile(ProductProfile):
     """Academic research pipeline"""
 
     name = "research"
-    version = "1.0"
-    description = "Academic research: topic → lit review → hypothesis → experiment → paper → publish"
+    version = "2.0"
+    description = "Academic research: topic → lit review → hypothesis → experiment → paper → publish + HITL"
     state_machine_yaml = RESEARCH_SM
 
     def setup_validators(self):
@@ -182,6 +239,18 @@ def demo():
     print(f"\n📌 Initial: {rt.current_state}")
     print(f"   Total states: {len(sm.config.states)}")
     print(f"   Total transitions: {len(sm.config.transitions)}")
+
+    # Test HITL
+    print(f"\n🔔 HITL Test:")
+    for state_name in ["topic_selected", "hypothesis", "paper_draft", "peer_review"]:
+        hitl = sm.get_hitl_questions(state_name, rt)
+        is_pause = sm.is_pause_state(state_name)
+        state_def = sm.config.states[state_name]
+        pause_tag = "⏸️ PAUSE" if state_def.state_type.name == "PAUSE" else ""
+        print(f"   {state_name}: {len(hitl)} questions {'(' + pause_tag + ')' if pause_tag else ''}")
+        for q in hitl:
+            choices_str = f" [{', '.join(q['choices'])}]" if q.get('choices') else ""
+            print(f"     - [{q['type']}] {q['question']}{choices_str}")
 
     # Test state machine
     for to_state in sm.get_next_states(rt.current_state):

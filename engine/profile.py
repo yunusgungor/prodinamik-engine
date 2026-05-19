@@ -23,6 +23,7 @@ from engine.state_machine import (
     StateDefinition, TransitionDefinition, RuntimeState,
     TransitionType, StateType,
 )
+from engine.sm_types import HITLConfig, AskDirective, ConditionalAsk
 
 
 # ──────────────────────────────────────────────
