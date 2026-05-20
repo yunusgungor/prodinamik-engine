@@ -15,7 +15,7 @@ interface AuthState {
   checkSession: () => Promise<boolean>;
 }
 
-const DEFAULT_BASE_URL = "http://localhost:8000";
+const DEFAULT_BASE_URL = typeof window !== 'undefined' ? window.location.origin : "http://localhost:8000";
 
 export const useAuthStore = create<AuthState>()(
   persist(
