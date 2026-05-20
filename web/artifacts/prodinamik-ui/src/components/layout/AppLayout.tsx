@@ -221,7 +221,7 @@ function MobileNavOverlay({
 }
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { logout, baseUrl, role } = useAuthStore();
   const { theme, setTheme, sidebarCollapsed, toggleSidebar } = useUIStore();
   const { data: metrics } = useGetMetrics({
