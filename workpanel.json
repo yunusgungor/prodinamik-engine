@@ -1,0 +1,119 @@
+{
+  "apiVersion": "workpanel/v2",
+  "kind": "Application",
+  "metadata": {
+    "name": "prodinamik-engine",
+    "project": "pipeline-engine",
+    "description": "Product-Agnostic Pipeline Engine — Formal state machines, HITL (Human-In-The-Loop), AI Grid, Raft consensus, Chaos Engineering, Multi-tier validation.",
+    "labels": {
+      "env": "production",
+      "stack": "python-fastapi-react",
+      "version": "1.3.0"
+    },
+    "annotations": {
+      "docs": "https://github.com/yunusgungor/prodinamik-engine",
+      "maintainer": "Yunus Güngör <mail@yunusgungor.com>"
+    }
+  },
+  "spec": {
+    "primaryService": "prodinamik-web",
+    "env": {
+      "TZ": "Europe/Istanbul",
+      "HERMES_HOME": "/data",
+      "PYTHONUNBUFFERED": "1",
+      "LANG": "C.UTF-8"
+    },
+    "volumes": [
+      {
+        "name": "prodinamik-data",
+        "mountPath": "/data",
+        "reclaimPolicy": "retain",
+        "backup": {
+          "enabled": true,
+          "retentionCount": 7
+        }
+      }
+    ],
+    "domains": [
+      {
+        "host": "pr.googig.cloud",
+        "service": "prodinamik-web",
+        "tls": true
+      }
+    ],
+    "release": {
+      "strategy": "rolling",
+      "replicas": 1,
+      "jobs": [
+        {
+          "name": "api-bootstrap",
+          "service": "prodinamik-api",
+          "command": [
+            "python",
+            "-c",
+            "import sys, os; sys.path.insert(0, '.'); from engine.runtime import AsyncEngine; from engine.config import ProdinamikConfig; e=AsyncEngine(config=ProdinamikConfig(data_dir='/data/prodinamik')); print('✅ Engine bootstrapped'); e._reload_engine()"
+          ],
+          "phase": "postDeploy"
+        },
+        {
+          "name": "create-admin-key",
+          "service": "prodinamik-api",
+          "command": [
+            "python",
+            "-c",
+            "import sys, os; sys.path.insert(0, '.'); from engine.auth import AuthManager; auth=AuthManager(base_path='/data/prodinamik/auth'); keys=auth.list_keys(); print(f'{len(keys)} key(s) exist') if keys else [print(f'Creating default admin key...') or auth.create_key('admin', 'admin')]"
+          ],
+          "phase": "postDeploy"
+        }
+      ]
+    },
+    "services": [
+      {
+        "name": "prodinamik-api",
+        "type": "api",
+        "mode": "build",
+        "expose": false,
+        "build": {
+          "context": ".",
+          "dockerfile": "infra/docker/prodinamik-api.Dockerfile",
+          "args": {
+            "HERMES_HOME": "/data"
+          }
+        },
+        "ports": [
+          {
+            "target": 8000,
+            "protocol": "tcp",
+            "healthCheck": "/api/v1/healthz"
+          }
+        ],
+        "env": {
+          "HERMES_HOME": "/data"
+        },
+        "volumes": ["prodinamik-data"]
+      },
+      {
+        "name": "prodinamik-web",
+        "type": "web",
+        "mode": "build",
+        "expose": true,
+        "build": {
+          "context": ".",
+          "dockerfile": "infra/docker/prodinamik-web.Dockerfile",
+          "args": {
+            "PORT": "3000",
+            "BASE_PATH": "/"
+          }
+        },
+        "ports": [
+          {
+            "target": 80,
+            "protocol": "tcp",
+            "healthCheck": "/"
+          }
+        ],
+        "dependsOn": ["prodinamik-api"]
+      }
+    ]
+  }
+}
