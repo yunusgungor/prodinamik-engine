@@ -9,8 +9,10 @@ interface AuthState {
   baseUrl: string;
   role: Role | null;
   isAuthenticated: boolean;
+  hasHydrated: boolean;
   login: (key: string, url: string, role: Role) => void;
   logout: () => void;
+  checkSession: () => Promise<boolean>;
 }
 
 const DEFAULT_BASE_URL = "http://localhost:8000";
@@ -22,6 +24,7 @@ export const useAuthStore = create<AuthState>()(
       baseUrl: DEFAULT_BASE_URL,
       role: null,
       isAuthenticated: false,
+      hasHydrated: false,
       login: (key, url, role) => {
         setBaseUrl(url);
         setAuthTokenGetter(() => key);
@@ -32,14 +35,33 @@ export const useAuthStore = create<AuthState>()(
         setAuthTokenGetter(null);
         set({ apiKey: null, role: null, isAuthenticated: false });
       },
+      checkSession: async () => {
+        const { apiKey, baseUrl, isAuthenticated } = get();
+        if (!apiKey || !isAuthenticated) return false;
+        try {
+          const res = await fetch(`${baseUrl}/api/v1/auth/me`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(3000),
+          });
+          return res.ok;
+        } catch {
+          // Network error — keep session active, don't force re-login
+          return true;
+        }
+      },
     }),
     {
       name: "pdmk-auth",
       onRehydrateStorage: () => (state) => {
+        // After hydration completes, restore API client config
         if (state?.apiKey) {
           setBaseUrl(state.baseUrl ?? DEFAULT_BASE_URL);
           setAuthTokenGetter(() => state.apiKey!);
         }
+        // Signal that hydration is complete (next tick for React rendering)
+        setTimeout(() => {
+          useAuthStore.setState({ hasHydrated: true });
+        }, 0);
       },
     }
   )

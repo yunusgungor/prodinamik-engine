@@ -327,7 +327,7 @@ export function HITLDialog({
             <Button
               size="sm"
               onClick={handleSubmit}
-              disabled={!answers[currentQ] || submitting}
+              disabled={(!answers[currentQ] && !feedback.trim()) || submitting}
               className="flex-1"
               data-testid="button-hitl-submit"
             >

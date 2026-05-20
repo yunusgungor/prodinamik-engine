@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -22,12 +21,14 @@ import ConfigPage from "@/pages/ConfigPage";
 import SecurityPage from "@/pages/SecurityPage";
 import DistributionPage from "@/pages/DistributionPage";
 import ChaosPage from "@/pages/ChaosPage";
+import NotFoundPage from "@/pages/not-found";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
       staleTime: 10000,
+      refetchOnWindowFocus: false,
     },
   },
 });
@@ -53,6 +54,9 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={LoginPage} />
+      <Route path="/new-run">
+        <ProtectedLayout><DashboardPage initialCreateRun /></ProtectedLayout>
+      </Route>
       <Route path="/">
         <ProtectedLayout><DashboardPage /></ProtectedLayout>
       </Route>
@@ -93,6 +97,10 @@ function Router() {
       </Route>
       <Route path="/chaos">
         <ProtectedLayout><AdminRoute><ChaosPage /></AdminRoute></ProtectedLayout>
+      </Route>
+      {/* Catch-all: 404 */}
+      <Route>
+        <ProtectedLayout><NotFoundPage /></ProtectedLayout>
       </Route>
     </Switch>
   );

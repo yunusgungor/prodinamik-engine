@@ -101,8 +101,8 @@ function EngineConnectionBadge({ connected }: { connected: boolean | null }) {
   return <Badge variant="outline" className="text-xs text-amber-400 border-amber-500/30"><WifiOff className="w-3 h-3 mr-1" />Using Mock Data</Badge>;
 }
 
-export default function DashboardPage() {
-  const [createOpen, setCreateOpen] = useState(false);
+export default function DashboardPage({ initialCreateRun }: { initialCreateRun?: boolean }) {
+  const [createOpen, setCreateOpen] = useState(initialCreateRun ?? false);
   const [wsMetrics, setWsMetrics] = useState<any>(null);
   const [engineConnected, setEngineConnected] = useState<boolean | null>(null);
   const { data: metrics, isLoading, refetch } = useGetMetrics({ query: { refetchInterval: 15000 } as any });

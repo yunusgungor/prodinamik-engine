@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -23,12 +23,28 @@ export default function LoginPage() {
   const [, setLocation] = useLocation();
   const login = useAuthStore((s) => s.login);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Redirect if already authenticated (useEffect to avoid render-time setLocation)
+  useEffect(() => {
+    if (isAuthenticated && hasHydrated) {
+      setLocation("/");
+    }
+  }, [isAuthenticated, hasHydrated, setLocation]);
+
+  // Still hydrating — show loading
+  if (!hasHydrated) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   if (isAuthenticated) {
-    setLocation("/");
-    return null;
+    return null; // useEffect will handle navigation
   }
 
   const { register, handleSubmit, formState: { errors }, setValue } = useForm<FormData>({
