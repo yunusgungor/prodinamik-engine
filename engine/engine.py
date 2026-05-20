@@ -12,6 +12,7 @@ Orchestrates all components:
 import sys
 import os
 from pathlib import Path
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from .config import ProdinamikConfig
@@ -30,6 +31,7 @@ def _discover_profiles():
         return _PROFILES
 
     known = {
+        "devcycle": ("profiles.devcycle", "DevCycleProfile"),
         "haber": ("profiles.haber", "HaberProfile"),
         "content": ("profiles.content", "ContentProfile"),
         "software": ("profiles.software", "SoftwareProfile"),

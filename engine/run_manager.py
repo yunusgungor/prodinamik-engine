@@ -296,8 +296,8 @@ class RunManager:
 
         from_state = meta.state
 
-        # Increment iteration counter when leaving iteration state
-        if from_state == "iteration":
+        # Increment iteration counter when leaving iteration-relevant states
+        if from_state in ("iteration", "development"):
             meta.iteration_count += 1
 
         # State machine validasyonu (profile varsa)
