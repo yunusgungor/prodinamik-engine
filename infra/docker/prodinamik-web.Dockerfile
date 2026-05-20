@@ -7,12 +7,12 @@
 # ──────────────────────────────────────────────────
 
 # ── Stage 1: Build ──
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 
 LABEL stage="build"
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Install pnpm (v9 compatible with Node 22)
+RUN corepack enable && corepack prepare pnpm@9 --activate
 
 WORKDIR /build
 
@@ -31,8 +31,7 @@ COPY web/tsconfig.base.json ./tsconfig.base.json
 
 # ── Install dependencies ──
 # No frozen lockfile — first build generates it
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    pnpm install --no-frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # ── Build the web app ──
 # PORT and BASE_PATH are required by the Vite config
