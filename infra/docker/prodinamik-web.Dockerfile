@@ -62,7 +62,7 @@ COPY --from=build /build/artifacts/prodinamik-ui/dist/public/ /usr/share/nginx/h
 
 # Health check
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:80/ || exit 1
+    CMD wget -qO- http://127.0.0.1:80/ || exit 1
 
 EXPOSE 80
 
