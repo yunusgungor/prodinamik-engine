@@ -1,0 +1,21 @@
+{
+  "name": "Prodinamik Engine",
+  "short_name": "Prodinamik",
+  "description": "Prodinamik Engine — Product-Agnostic Pipeline Engine Control Plane",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "180x180",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["developer-tools", "productivity"],
+  "lang": "en",
+  "scope": "."
+}

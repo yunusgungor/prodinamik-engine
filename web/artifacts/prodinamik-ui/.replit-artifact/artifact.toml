@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Prodinamik Engine UI"
+version = "1.0.0"
+id = "artifacts/prodinamik-ui"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21385
+
+[services.development]
+run = "pnpm --filter @workspace/prodinamik-ui run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/prodinamik-ui", "run", "build" ]
+publicDir = "artifacts/prodinamik-ui/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21385"
+BASE_PATH = "/"

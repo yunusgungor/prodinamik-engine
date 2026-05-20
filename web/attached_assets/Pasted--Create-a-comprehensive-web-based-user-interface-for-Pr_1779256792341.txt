@@ -1,0 +1,750 @@
+```
+Create a comprehensive web-based user interface for Prodinamik Engine v1.3, a product-agnostic pipeline engine with formal state machine, multi-tier validation, event sourcing, Raft consensus, plugin ecosystem, and AI-native features.
+
+## PROJECT OVERVIEW
+
+Prodinamik Engine is the shared core behind Content-OS, Haber-Kurator, and dev-cycle. It manages any production pipeline (content, software, research, design) through a unified state machine, validator pipeline, and distributed runtime. The engine has 49 Python modules, 333 tests, 46 CLI commands, and 4 production profiles (software, content, research, design).
+
+## TECHNICAL STACK
+
+- **Frontend Framework:** React 18+ with TypeScript
+- **UI Library:** shadcn/ui (modern, accessible components)
+- **State Management:** Zustand (lightweight, simple)
+- **Routing:** React Router v6
+- **HTTP Client:** Axios with interceptors
+- **Real-time:** Native WebSocket with reconnection logic
+- **Charts:** Recharts (for metrics and analytics)
+- **Graph Editor:** React Flow (for state machine visualization)
+- **Code Editor:** Monaco Editor (for YAML editing)
+- **Forms:** React Hook Form with Zod validation
+- **Styling:** Tailwind CSS
+- **Icons:** Lucide React
+- **Date Handling:** date-fns
+- **Build Tool:** Vite
+
+## BACKEND API INTEGRATION
+
+The engine provides an HTTP server with the following endpoints (base URL configurable):
+
+### Core Endpoints
+- `GET /healthz` - Health check
+- `GET /metrics` - Prometheus metrics (text format)
+- `GET /api/v1/runs` - List all runs (requires auth)
+- `POST /api/v1/runs` - Create new run (requires auth)
+- `GET /api/v1/runs/{slug}` - Get run details (requires auth)
+- `POST /api/v1/runs/{slug}/transition` - State transition (requires auth)
+- `GET /api/v1/profiles` - List available profiles (requires auth)
+- `GET /api/v1/audit` - Query audit log (requires auth)
+- `GET /api/v1/metrics` - Engine metrics (requires auth)
+
+### Human Loop Endpoints
+- `GET /api/v1/human/approvals` - Pending approvals
+- `POST /api/v1/human/approve` - Approve task
+- `POST /api/v1/human/reject` - Reject task
+- `POST /api/v1/human/pause` - Pause task
+- `GET /api/v1/human/budget` - Budget status
+- `POST /api/v1/human/budget/reset` - Reset budget
+- `GET /api/v1/human/dashboard` - Oversight dashboard HTML
+
+### Authentication
+API key authentication via `Authorization: Bearer pdmk_xxxx` header. Roles: admin, user, readonly.
+
+## APPLICATION STRUCTURE
+
+### Page Structure
+1. **Login Page** (`/login`) - API key authentication
+2. **Dashboard** (`/`) - Main overview
+3. **Runs** (`/runs`) - Run management
+4. **Run Detail** (`/runs/:slug`) - Single run view
+5. **State Machine Editor** (`/state-machine`) - Visual editor
+6. **Observability** (`/observability`) - Metrics and monitoring
+7. **Audit Log** (`/audit`) - Audit trail viewer
+8. **AI Dashboard** (`/ai`) - AI features
+9. **Plugins** (`/plugins`) - Plugin management
+10. **Human Loop** (`/human-loop`) - Oversight dashboard
+11. **Configuration** (`/config`) - Config editor
+12. **Security** (`/security`) - Auth and RBAC
+13. **Distribution** (`/distribution`) - Raft cluster
+14. **Chaos Engineering** (`/chaos`) - Chaos scenarios
+
+### Layout Structure
+- **Sidebar Navigation** - Collapsible, with icons
+- **Top Bar** - User menu, notifications, theme toggle, degradation status
+- **Main Content Area** - Page-specific content
+- **Right Panel** - Contextual (optional, for details)
+
+## DETAILED PAGE SPECIFICATIONS
+
+### 1. Login Page
+- **Components:**
+  - API key input field (password type)
+  - Remember me checkbox
+  - Login button
+  - Error message display
+- **Behavior:**
+  - Validate API key format (pdmk_ prefix)
+  - Call `/api/v1/profiles` to verify auth
+  - Store API key in localStorage (if remember me)
+  - Redirect to dashboard on success
+  - Show error message on failure
+
+### 2. Dashboard (Main Page)
+- **Components:**
+  - **Engine Health Card:**
+    - Health score (0-100, circular progress)
+    - Degradation level (FULL/DEGRADED/SURVIVAL with color coding)
+    - Uptime (seconds)
+    - Status indicator (green/yellow/red)
+  - **Run Activity Card:**
+    - Active runs count (large number)
+    - Total runs count
+    - Run creation rate chart (line chart, last 24h)
+  - **State Distribution Card:**
+    - Pie chart showing runs by current state
+    - Legend with state names and counts
+  - **Profile Distribution Card:**
+    - Bar gauge showing runs by profile type
+    - Color-coded by profile
+  - **Budget & Cost Card:**
+    - Budget usage ratio (progress bar)
+    - Total cost accumulated (USD)
+    - Cost by category pie chart (LLM, compute, storage, network)
+  - **Recent Alerts Card:**
+    - List of last 5 alerts
+    - Each alert: level (icon), timestamp, message
+    - Click to view details
+  - **Quick Actions:**
+    - "New Run" button (opens modal)
+    - "Start Daemon" button
+    - "Run Chaos Scenario" button
+- **Real-time Updates:**
+  - WebSocket for live metrics
+  - Auto-refresh every 30s as fallback
+
+### 3. Runs Page
+- **Components:**
+  - **Filter Bar:**
+    - Profile dropdown (multi-select)
+    - State dropdown (multi-select)
+    - Status dropdown (active/archived/error)
+    - Date range picker
+    - Search input (by slug or title)
+    - Reset filters button
+  - **Runs Table:**
+    - Columns: Slug (clickable), Title, Profile (badge), State (badge with color), Status, Created At, Elapsed, Actions
+    - Sortable columns
+    - Pagination (20 per page)
+    - Row actions: View, Transition, Debug, Archive
+  - **Create Run Modal:**
+    - Profile dropdown
+    - Title input
+    - Optional context JSON editor
+    - Create button
+- **Behavior:**
+  - Fetch runs from `/api/v1/runs`
+  - Apply filters client-side or via API params
+  - Real-time updates via WebSocket
+  - Transition action opens transition dialog
+
+### 4. Run Detail Page
+- **Components:**
+  - **Header:**
+    - Run slug and title
+    - Profile badge
+    - Current state badge
+    - Status indicator
+    - Back button
+  - **Tabs:**
+    - Overview, State Machine, Events, Artifacts, Validation, Context, Debug
+  - **Overview Tab:**
+    - Meta information grid
+    - State timeline (vertical timeline visualization)
+    - Iteration count
+    - Elapsed time in current state
+    - Timeout remaining (if applicable)
+  - **State Machine Tab:**
+    - Visual state machine graph (React Flow)
+    - Current state highlighted
+    - Possible transitions shown
+  - **Events Tab:**
+    - Event log table (timestamp, event_type, data)
+    - Expandable rows for JSON details
+    - Filter by event type
+  - **Artifacts Tab:**
+    - File list with download links
+    - File type icons
+    - File sizes
+  - **Validation Tab:**
+    - T1/T2/T3 validator results
+    - Pass/fail indicators
+    - Error messages
+  - **Context Tab:**
+    - JSON viewer for run context
+    - Searchable
+    - Collapsible sections
+  - **Debug Tab:**
+    - Runtime state display
+    - Error logs
+    - Stack traces
+  - **Action Bar:**
+    - Transition button (dropdown)
+    - Archive button
+    - Debug button
+- **Behavior:**
+  - Fetch run details from `/api/v1/runs/{slug}`
+  - Real-time updates via WebSocket
+  - Transition opens confirmation dialog
+
+### 5. State Machine Editor Page
+- **Components:**
+  - **Toolbar:**
+    - New state button
+    - New transition button
+    - Auto-layout button
+    - Validate button
+    - Import YAML button
+    - Export YAML button
+    - Save button
+  - **Canvas:**
+    - React Flow graph editor
+    - Zoom/pan controls
+    - Minimap
+  - **Properties Panel (right sidebar):**
+    - State properties (when state selected)
+    - Transition properties (when transition selected)
+  - **Validation Panel (bottom):**
+    - Validation errors list
+    - Warnings list
+  - **YAML Editor (toggle):**
+    - Monaco editor with YAML syntax highlighting
+    - Live sync with graph
+- **State Properties:**
+  - Name (text)
+  - Type (dropdown: initial, intermediate, terminal, error, pause)
+  - Max reentries (number)
+  - Timeout seconds (number)
+  - Entry hooks (list of strings)
+  - Exit hooks (list of strings)
+  - Validators (list of strings)
+  - HITL config (expandable section):
+    - Ask user questions (list)
+    - Ask if conditions (list)
+    - Resume transitions (mapping)
+  - Temporal config (expandable):
+    - Max idle
+    - Reminders (list)
+  - Requires manual (checkbox)
+- **Transition Properties:**
+  - From state (dropdown)
+  - To state (dropdown)
+  - Type (radio: reversible, compensable, irreversible)
+  - Condition (text with syntax help)
+  - Action (text)
+  - Requires human (checkbox)
+- **Validation Rules:**
+  - Initial states must have outgoing transitions
+  - Terminal states must have no outgoing transitions
+  - Dead-end cycles detection
+  - Unreachable states detection
+  - Max reentries must be defined
+  - Transition targets must exist
+
+### 6. Observability Page
+- **Components:**
+  - **Metrics Panel:**
+    - Metric selector dropdown
+    - Time range selector (1h, 6h, 24h, 7d)
+    - Chart display (line/bar/gauge based on metric type)
+    - Metric type badge (Counter/Gauge/Histogram)
+  - **Performance Charts:**
+    - Transition latency (P50/P95/P99 line chart)
+    - Event store append latency (line chart)
+    - WAL write latency (histogram)
+    - Throughput (line chart)
+  - **Audit Log Viewer:**
+    - Filter bar: event type, date range, limit, search
+    - Audit log table (timestamp, event_type, data summary)
+    - Expandable JSON details
+    - Export button (JSON/CSV)
+  - **Alert Configuration:**
+    - Alert channels list (Slack, Telegram, Generic)
+    - Channel configuration forms
+    - Threshold configuration per alert type
+    - Test alert button
+  - **Degradation Timeline:**
+    - Timeline visualization of degradation levels
+    - Color-coded segments (green/yellow/red)
+- **Behavior:**
+  - Fetch metrics from `/api/v1/metrics`
+  - Parse Prometheus metrics format
+  - Real-time updates via WebSocket
+  - Audit log query via `/api/v1/audit`
+
+### 7. Audit Log Page
+- **Components:**
+  - **Filter Bar:**
+    - Event type dropdown
+    - Date range picker
+    - Limit slider (10-100)
+    - Search input
+    - Apply filters button
+  - **Audit Table:**
+    - Columns: Timestamp, Event Type, Summary, Actions
+    - Expandable rows for full JSON data
+    - Pagination
+  - **Export Options:**
+    - Export JSON button
+    - Export CSV button
+- **Behavior:**
+  - Query audit log via `/api/v1/audit` with params
+  - Client-side filtering
+  - Export functionality
+
+### 8. AI Dashboard Page
+- **Components:**
+  - **Feature Toggles:**
+    - Drift detection (toggle)
+    - Predictive degradation (toggle)
+    - Auto-remediation (toggle)
+    - Skill emergence (toggle)
+    - Run recommender (toggle)
+  - **Drift Detection Panel:**
+    - Drift events timeline (scatter plot)
+    - Trend analysis chart (linear regression)
+    - Anomaly detection heatmap
+    - Drift type distribution pie chart
+  - **Emergence Candidates List:**
+    - Table: Pattern ID, Drift Type, Description, Occurrences, Affected Runs, Confidence, Suggested Skill Name, Actions
+    - Actions: Generate, Promote, Dismiss
+    - Confidence score visualization (progress bar)
+  - **Predictive Degradation Panel:**
+    - Forecast charts (MA, LR, Holt-Winters)
+    - Threshold breach predictions
+    - Degradation level forecast
+    - Time horizon selector
+  - **Run Recommender Panel:**
+    - Current state display
+    - Recommended next states with scores
+    - Success probability visualization
+    - Bottleneck detection list
+  - **Auto-Remediation Monitor:**
+    - Active remediation plans list
+    - Failure pattern matches
+    - Cooldown status indicators
+    - Success/failure statistics
+    - Escalation queue
+- **Behavior:**
+  - Fetch AI status from CLI command equivalent
+  - Real-time updates via WebSocket
+  - Feature toggles update config
+
+### 9. Plugins Page
+- **Components:**
+  - **Plugin List:**
+    - Table: ID, Name, Version, Type, Status, Dependencies, Actions
+    - Type badges (VALIDATOR/ADAPTER/HOOK/TOOL/PROFILE/STORE/UI/INTEGRATION/LLM_PROVIDER/AGENT)
+    - Status indicators (enabled/disabled/error)
+    - Actions: Enable, Disable, Uninstall, Info
+  - **Plugin Marketplace (tab):**
+    - Search bar
+    - Category filter
+    - Plugin cards with details
+    - Install button
+    - Version selector
+  - **Plugin Detail Modal:**
+    - Manifest information
+    - Hooks list
+    - Tools list
+    - Validators list
+    - Dependencies graph
+    - Health check status
+  - **Dependency Graph:**
+    - Visual graph of plugin dependencies
+- **Behavior:**
+  - Fetch plugins from CLI command equivalent
+  - Enable/disable actions
+  - Install from marketplace
+  - Health checks
+
+### 10. Human Loop / Oversight Dashboard Page
+- **Components:**
+  - **Pending Approvals Card:**
+    - List of pending approval tasks
+    - Each task: task ID, description, timestamp, actions
+    - Approve/Reject buttons with feedback input
+  - **Budget Status Card:**
+    - Budget level (progress bar)
+    - Total cost
+    - Hourly/daily limits
+    - LLM/tool calls count
+    - Reset budget button
+  - **Audit Trail Card:**
+    - Approval audit log
+    - Columns: action, task_id, user, detail, timestamp
+  - **Pause Task Modal:**
+    - Task selection
+    - Reason dropdown (human_review, budget_exceeded, error_threshold, manual, security)
+    - Pause button
+- **Behavior:**
+  - Fetch from `/api/v1/human/approvals`, `/api/v1/human/budget`, `/api/v1/human/audit`
+  - Approve/reject via POST endpoints
+  - Real-time updates via WebSocket
+
+### 11. Configuration Page
+- **Components:**
+  - **Section Tabs:**
+    - Engine, Runtime, Server, Auth, Metrics, Degradation, Budget, Event Store, State Machine, LLM, Profiles, AI
+  - **YAML Editor:**
+    - Monaco editor with YAML syntax highlighting
+    - Live validation
+    - Error/warning display
+  - **Environment Variables Panel:**
+    - Key-value pairs editor
+    - Add/remove buttons
+  - **Save/Reset Actions:**
+    - Save button
+    - Reset to defaults button
+    - Validate button
+- **Config Sections:**
+  - **Engine:** data_dir, log_level, log_format
+  - **Runtime:** health_interval_sec, poll_interval_sec, enable_timeout_watcher
+  - **Server:** host, port, rate_limit, burst
+  - **Auth:** keys_path
+  - **Metrics:** enabled
+  - **Degradation:** disk_usage_max_pct, consecutive_llm_failures, consecutive_adapter_failures
+  - **Budget:** soft_limit_usd, hard_limit_usd, max_llm_calls_per_run, max_storage_mb
+  - **Event Store:** retention_days, compaction_batch, max_events_per_run
+  - **State Machine:** max_steps, default_timeout
+  - **LLM:** enabled, default_provider, max_retries, fallback_enabled, providers (list)
+  - **Profiles:** profile list
+  - **AI:** enabled, drift_detection, predictive_degradation, auto_remediation, skill_emergence, run_recommender
+
+### 12. Security Page
+- **Components:**
+  - **API Key Management:**
+    - Create key form: name, role (admin/user/readonly), expires (days)
+    - Keys table: ID, Name, Role, Created At, Expires At, Status, Actions
+    - Actions: Revoke, Copy
+    - Show key once on creation
+  - **RBAC Panel:**
+    - Role assignment matrix
+    - Permission checkboxes per role
+  - **Rate Limiting:**
+    - Rate limit configuration
+    - Hit statistics chart
+  - **Session Management:**
+    - Active sessions list
+    - Revoke session button
+- **Behavior:**
+  - API key CRUD operations
+  - Role-based UI rendering
+  - Session management
+
+### 13. Distribution Page (Raft Cluster)
+- **Components:**
+  - **Cluster Status Card:**
+    - Current leader (highlighted)
+    - Cluster size
+    - Node list with status
+  - **Peer Management:**
+    - Add peer form (ID, address)
+    - Peer list with actions
+    - Remove peer button
+  - **Log Replication Status:**
+    - Replication lag metrics
+    - Log index visualization
+  - **Distributed Runs:**
+    - Multi-node run coordination status
+    - Node assignment visualization
+- **Behavior:**
+  - Fetch cluster status from CLI command equivalent
+  - Peer management operations
+  - Real-time updates
+
+### 14. Chaos Engineering Page
+- **Components:**
+  - **Scenario List:**
+    - 10 built-in scenarios (network-partition, disk-full, memory-pressure, OOM, CPU-spike, degraded-mode, WAL-corruption, event-flood, dependency-down, config-corruption)
+    - Scenario cards with description
+    - Run button
+  - **Scenario Runner:**
+    - Scenario selector
+    - Duration override input
+    - Dangerous flag checkbox
+    - Run button
+    - Stop button
+  - **Results Panel:**
+    - Chaos test results
+    - Recovery status
+    - Metrics before/after
+  - **Safety Thresholds:**
+    - Chaos safety limits configuration
+- **Behavior:**
+  - Scenario execution via CLI command equivalent
+  - Real-time progress updates
+  - Results display
+
+## STATE MANAGEMENT (Zustand)
+
+### Store Structure
+```typescript
+interface AppState {
+  // Auth
+  auth: {
+    apiKey: string | null;
+    role: 'admin' | 'user' | 'readonly' | null;
+    isAuthenticated: boolean;
+  };
+  
+  // Engine
+  engine: {
+    health: EngineHealth;
+    degradation: 'FULL' | 'DEGRADED' | 'SURVIVAL';
+    uptime: number;
+  };
+  
+  // Runs
+  runs: {
+    list: Run[];
+    selected: Run | null;
+    filters: RunFilters;
+    loading: boolean;
+  };
+  
+  // State Machine
+  stateMachine: {
+    definition: StateMachineDefinition;
+    validation: ValidationResult[];
+    selectedNode: string | null;
+    selectedEdge: string | null;
+  };
+  
+  // Observability
+  observability: {
+    metrics: MetricData[];
+    alerts: Alert[];
+    auditLog: AuditEntry[];
+  };
+  
+  // AI
+  ai: {
+    driftEvents: DriftEvent[];
+    emergenceCandidates: EmergenceCandidate[];
+    forecasts: ForecastData[];
+    recommendations: Recommendation[];
+    remediationPlans: RemediationPlan[];
+    config: AIConfig;
+  };
+  
+  // Plugins
+  plugins: {
+    list: Plugin[];
+    installed: Plugin[];
+    marketplace: Plugin[];
+  };
+  
+  // Human Loop
+  humanLoop: {
+    approvals: ApprovalTask[];
+    budget: BudgetStatus;
+    audit: ApprovalAudit[];
+  };
+  
+  // Config
+  config: {
+    yaml: string;
+    envVars: Record<string, string>;
+    validation: ConfigValidationResult[];
+  };
+  
+  // UI
+  ui: {
+    theme: 'light' | 'dark';
+    sidebarCollapsed: boolean;
+    notifications: Notification[];
+  };
+}
+```
+
+## ROUTING STRUCTURE
+
+```typescript
+const routes = [
+  { path: '/login', element: <LoginPage /> },
+  { path: '/', element: <Dashboard />, protected: true },
+  { path: '/runs', element: <RunsPage />, protected: true },
+  { path: '/runs/:slug', element: <RunDetailPage />, protected: true },
+  { path: '/state-machine', element: <StateMachineEditor />, protected: true, roles: ['admin'] },
+  { path: '/observability', element: <ObservabilityPage />, protected: true },
+  { path: '/audit', element: <AuditLogPage />, protected: true },
+  { path: '/ai', element: <AIDashboard />, protected: true },
+  { path: '/plugins', element: <PluginsPage />, protected: true },
+  { path: '/human-loop', element: <HumanLoopPage />, protected: true },
+  { path: '/config', element: <ConfigPage />, protected: true, roles: ['admin'] },
+  { path: '/security', element: <SecurityPage />, protected: true, roles: ['admin'] },
+  { path: '/distribution', element: <DistributionPage />, protected: true, roles: ['admin'] },
+  { path: '/chaos', element: <ChaosPage />, protected: true, roles: ['admin'] },
+];
+```
+
+## WEBSOCKET EVENTS
+
+### Client → Server
+- `subscribe:runs` - Subscribe to run updates
+- `subscribe:metrics` - Subscribe to metric updates
+- `subscribe:alerts` - Subscribe to alerts
+- `subscribe:ai` - Subscribe to AI events
+
+### Server → Client
+- `run:created` - New run created
+- `run:transition` - State transition occurred
+- `run:archived` - Run archived
+- `metric:update` - Metric value changed
+- `alert:triggered` - Alert fired
+- `degradation:changed` - Degradation level changed
+- `plugin:installed` - Plugin installed
+- `plugin:enabled` - Plugin enabled
+- `ai:drift_detected` - Drift detected
+- `ai:skill_emerged` - Skill emerged
+
+## COMPONENT LIBRARY (shadcn/ui)
+
+Use these shadcn/ui components:
+- Button, Input, Select, Textarea, Checkbox, Radio Group
+- Card, Dialog, Dropdown Menu, Tabs, Table
+- Badge, Alert, Progress, Separator
+- Tooltip, Popover, Sheet (sidebar), Toast
+- Form, Label, Switch, Slider
+- Scroll Area, Resizable
+
+## DESIGN SYSTEM
+
+### Colors
+- **Primary:** Blue-600
+- **Success:** Green-600
+- **Warning:** Yellow-600
+- **Error:** Red-600
+- **Info:** Cyan-600
+
+### State Colors
+- **Initial State:** Green
+- **Intermediate State:** Blue
+- **Terminal State:** Gray
+- **Error State:** Red
+- **Pause State:** Orange
+
+### Degradation Colors
+- **FULL:** Green
+- **DEGRADED:** Yellow
+- **SURVIVAL:** Red
+
+### Typography
+- **Font:** Inter (system font)
+- **Headings:** Bold, tight tracking
+- **Body:** Regular, relaxed line-height
+- **Code:** Monospace (JetBrains Mono or Fira Code)
+
+### Spacing
+- **Base unit:** 4px
+- **Component padding:** 16px (4 units)
+- **Section spacing:** 32px (8 units)
+- **Page padding:** 48px (12 units)
+
+### Border Radius
+- **Small:** 4px
+- **Medium:** 8px
+- **Large:** 12px
+- **XL:** 16px
+
+### Shadows
+- **Small:** 0 1px 2px rgba(0,0,0,0.05)
+- **Medium:** 0 4px 6px rgba(0,0,0,0.1)
+- **Large:** 0 10px 15px rgba(0,0,0,0.1)
+
+## RESPONSIVE DESIGN
+
+### Breakpoints
+- **Mobile:** < 640px
+- **Tablet:** 640px - 1024px
+- **Desktop:** > 1024px
+
+### Mobile Adaptations
+- Sidebar becomes bottom navigation or hamburger menu
+- Tables become card lists
+- Charts become simplified
+- Multi-column layouts become single column
+- Modals become full-screen
+
+## ACCESSIBILITY
+
+- WCAG 2.1 AA compliance
+- Keyboard navigation support
+- Screen reader support (ARIA labels)
+- Focus indicators
+- Color contrast ratios (4.5:1 minimum)
+- Skip to main content link
+- Alt text for images
+- Semantic HTML
+
+## PERFORMANCE REQUIREMENTS
+
+- Initial page load: < 2s
+- Route transitions: < 100ms
+- API response display: < 200ms
+- Chart rendering: < 500ms
+- Graph editor: < 1s for 100 nodes
+
+## ERROR HANDLING
+
+- Global error boundary
+- API error interceptors
+- Retry logic for failed requests
+- User-friendly error messages
+- Error logging to console
+- Toast notifications for errors
+
+## TESTING REQUIREMENTS
+
+- Unit tests for utilities and hooks
+- Integration tests for API calls
+- Component tests for UI components
+- E2E tests for critical flows (login, run creation, transition)
+
+## DEPLOYMENT
+
+- Build for production (Vite build)
+- Static file serving
+- Environment variables for API base URL
+- PWA support (optional)
+- Service worker for offline support (optional)
+
+## IMPLEMENTATION PRIORITY
+
+### Phase 1 (Core)
+1. Login page
+2. Dashboard (basic)
+3. Runs list and detail
+4. Basic state machine viewer (read-only)
+5. Config viewer
+
+### Phase 2 (Advanced)
+1. State machine editor (interactive)
+2. Observability dashboard
+3. Audit log viewer
+4. Plugin management
+5. Human loop dashboard
+
+### Phase 3 (AI)
+1. AI dashboard
+2. Drift detection UI
+3. Skill emergence UI
+4. Auto-remediation monitor
+
+### Phase 4 (Enterprise)
+1. Security page
+2. Distribution page
+3. Chaos engineering page
+4. Advanced RBAC
+
+Please implement this comprehensive web UI for Prodinamik Engine, following all specifications above. Use modern React patterns, TypeScript for type safety, and ensure a polished, professional user experience.
+```
