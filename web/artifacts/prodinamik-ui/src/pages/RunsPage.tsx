@@ -57,6 +57,22 @@ const PROFILE_COLORS: Record<string, string> = {
   devcycle: "text-red-400 border-red-500/30 bg-red-500/10",
 };
 
+function safeDate(dateStr: string | null | undefined): Date | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function safeFormatDistance(dateStr: string | null | undefined): string {
+  const d = safeDate(dateStr);
+  return d ? formatDistanceToNow(d, { addSuffix: true }) : "—";
+}
+
+function safeFormatDate(dateStr: string | null | undefined): string {
+  const d = safeDate(dateStr);
+  return d ? format(d, "MMM d HH:mm:ss") : "—";
+}
+
 function StateBadge({ state }: { state: string }) {
   return (
     <span className={cn("text-[11px] px-2 py-0.5 rounded border font-mono font-medium", STATE_COLORS[state] ?? "text-muted-foreground border-border bg-muted")}>
@@ -219,7 +235,7 @@ export default function RunsPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {formatDistanceToNow(new Date(run.created_at), { addSuffix: true })}
+                    {safeFormatDistance(run.created_at)}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground font-mono">
                     {run.elapsed_seconds ? `${Math.floor(run.elapsed_seconds / 3600)}h ${Math.floor((run.elapsed_seconds % 3600) / 60)}m` : "—"}

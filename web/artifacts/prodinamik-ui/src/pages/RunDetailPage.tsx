@@ -15,6 +15,22 @@ import { PipelineVisualizer, PipelineProgress } from "@/components/pipeline/Pipe
 import { HITLDialog } from "@/components/hitl/HITLDialog";
 import { cn } from "@/lib/utils";
 
+function safeDate(dateStr: string | null | undefined): Date | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function safeFormatDistance(dateStr: string | null | undefined, addSuffix = true): string {
+  const d = safeDate(dateStr);
+  return d ? formatDistanceToNow(d, { addSuffix }) : "—";
+}
+
+function safeFormat(dateStr: string | null | undefined, fmt: string): string {
+  const d = safeDate(dateStr);
+  return d ? format(d, fmt) : "—";
+}
+
 const STATE_COLORS: Record<string, string> = {
   initial: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10",
   spec: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10",
@@ -68,7 +84,7 @@ function ExpandableEvent({ event }: { event: { event_type: string; timestamp: st
         {open ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
         <span className="text-xs font-mono text-primary">{event.event_type}</span>
         <span className="text-xs text-muted-foreground ml-auto shrink-0">
-          {format(new Date(event.timestamp), "HH:mm:ss")}
+          {safeFormat(event.timestamp, "HH:mm:ss")}
         </span>
       </button>
       {open && event.data != null && (
@@ -221,7 +237,7 @@ export default function RunDetailPage({ slug }: { slug: string }) {
                 {[
                   { label: "Status", value: display.status },
                   { label: "Iteration", value: display.iteration ?? 0 },
-                  { label: "Created", value: formatDistanceToNow(new Date(display.created_at), { addSuffix: true }) },
+                  { label: "Created", value: safeFormatDistance(display.created_at) },
                   { label: "Elapsed", value: display.elapsed_seconds ? `${Math.floor(display.elapsed_seconds / 3600)}h ${Math.floor((display.elapsed_seconds % 3600) / 60)}m` : "—" },
                 ].map(({ label, value }) => (
                   <div key={label} className="bg-card border border-card-border rounded-md px-4 py-3">
@@ -253,7 +269,7 @@ export default function RunDetailPage({ slug }: { slug: string }) {
                             {!entry.exited_at && <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded">current</span>}
                           </div>
                           <div className="text-[11px] text-muted-foreground mt-0.5">
-                            {format(new Date(entry.entered_at), "MMM d HH:mm:ss")}
+                            {safeFormat(entry.entered_at, "MMM d HH:mm:ss")}
                             {entry.duration_seconds && ` · ${Math.round(entry.duration_seconds / 60)}m`}
                           </div>
                         </div>
