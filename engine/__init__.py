@@ -84,6 +84,14 @@ from .stateguard_bridge import (
     StateGuardValidator,
     make_stateguard_def,
 )
+# ── StateGuard Dimension Plugins ──
+from plugins.stateguard_dimensions import (
+    StructuralPlugin,
+    SemanticPlugin,
+    QuantitativePlugin,
+    BehavioralPlugin,
+    SecurityPlugin,
+)
 
 # ── LLM & Agent Plugin Infrastructure ──
 from .llm_base import (
@@ -203,6 +211,12 @@ __all__ = [
     # StateGuard Bridge
     "StateGuardValidator",
     "make_stateguard_def",
+    # StateGuard Dimension Plugins
+    "StructuralPlugin",
+    "SemanticPlugin",
+    "QuantitativePlugin",
+    "BehavioralPlugin",
+    "SecurityPlugin",
     # LLM & Agent Plugin Infrastructure
     "LLMProviderPlugin",
     "LLMProviderConfig",

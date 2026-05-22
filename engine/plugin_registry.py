@@ -53,6 +53,12 @@ PLUGIN_DIRS = [
 # Built-in plugins shipped with the engine
 BUILTIN_PLUGINS = [
     "engine.plugin.LoggingPlugin",
+    # StateGuard dimension validators
+    "plugins.stateguard_dimensions.StructuralPlugin",
+    "plugins.stateguard_dimensions.SemanticPlugin",
+    "plugins.stateguard_dimensions.QuantitativePlugin",
+    "plugins.stateguard_dimensions.BehavioralPlugin",
+    "plugins.stateguard_dimensions.SecurityPlugin",
 ]
 
 
