@@ -240,6 +240,10 @@ class ContentProfile(ProductProfile):
             name="SchemaCheck", tier=ValidatorTier.T1, critical=False,
             timeout_seconds=5,
         ))
+        # StateGuard dimension validators (config-driven)
+        from engine.stateguard_config import make_profile_validators
+        for v in make_profile_validators("content"):
+            self.add_validator(v)
 
     def setup_adapters(self):
         self.add_adapter(AdapterDef(

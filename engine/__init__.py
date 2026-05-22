@@ -94,6 +94,12 @@ from plugins.stateguard_dimensions import (
 )
 # ── HITL Bridge ──
 from .hitl_bridge import ProdinamikHITLHandler
+# ── StateGuard Profile Config ──
+from .stateguard_config import (
+    STATEGUARD_PROFILE_CONFIG,
+    make_profile_validators,
+    list_profile_configs,
+)
 
 # ── LLM & Agent Plugin Infrastructure ──
 from .llm_base import (
@@ -221,6 +227,10 @@ __all__ = [
     "SecurityPlugin",
     # HITL Bridge
     "ProdinamikHITLHandler",
+    # StateGuard Profile Config
+    "STATEGUARD_PROFILE_CONFIG",
+    "make_profile_validators",
+    "list_profile_configs",
     # LLM & Agent Plugin Infrastructure
     "LLMProviderPlugin",
     "LLMProviderConfig",

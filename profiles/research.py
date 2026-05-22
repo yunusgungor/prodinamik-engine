@@ -183,6 +183,10 @@ class ResearchProfile(ProductProfile):
             name="StatisticalCheck", tier=ValidatorTier.T1, critical=False,
             timeout_seconds=10,
         ))
+        # StateGuard dimension validators (config-driven)
+        from engine.stateguard_config import make_profile_validators
+        for v in make_profile_validators("research"):
+            self.add_validator(v)
 
     def setup_adapters(self):
         self.add_adapter(AdapterDef(
