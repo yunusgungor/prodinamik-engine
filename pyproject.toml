@@ -47,6 +47,9 @@ packages = [
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+markers = [
+    "slow: Integration tests that may take >5s (e.g. model loading)",
+]
 
 [tool.mypy]
 python_version = "3.11"

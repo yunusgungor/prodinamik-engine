@@ -79,6 +79,12 @@ from .skillforge import AutoSkillForge, SkillDraft
 from .recommend import AIRecommender, Recommendation
 from .autofix import AutoRemediator, FailureSignature, FailureClass, RemediationPlan
 
+# ── StateGuard Bridge ──
+from .stateguard_bridge import (
+    StateGuardValidator,
+    make_stateguard_def,
+)
+
 # ── LLM & Agent Plugin Infrastructure ──
 from .llm_base import (
     LLMProviderPlugin,
@@ -194,6 +200,9 @@ __all__ = [
     "FailureSignature",
     "FailureClass",
     "RemediationPlan",
+    # StateGuard Bridge
+    "StateGuardValidator",
+    "make_stateguard_def",
     # LLM & Agent Plugin Infrastructure
     "LLMProviderPlugin",
     "LLMProviderConfig",

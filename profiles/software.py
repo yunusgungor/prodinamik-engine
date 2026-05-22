@@ -14,6 +14,7 @@ Review #10: Formal migration plan included (v1.0 → v2.0)
 """
 
 from engine.profile import ProductProfile, ValidatorDef, ValidatorTier, AdapterDef, Budget
+from engine.stateguard_bridge import make_stateguard_def
 from engine.raft import NodeState, StateCRDT
 
 SOFTWARE_SM = """
@@ -157,6 +158,12 @@ class SoftwareProfile(ProductProfile):
         ))
         self.add_validator(ValidatorDef(
             name="LintCheck", tier=ValidatorTier.T1, critical=False,
+        ))
+        # StateGuard multi-dimensional validation bridge
+        self.add_validator(make_stateguard_def(
+            name="stateguard",
+            tier=ValidatorTier.T1,
+            critical=True,
         ))
 
     def setup_adapters(self):
