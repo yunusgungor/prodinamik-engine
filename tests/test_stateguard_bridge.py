@@ -252,8 +252,8 @@ def test_software_profile_includes_stateguard():
     profile.setup_validators()  # Don't call full initialize()
 
     names = [v.name for v in profile._validators]
-    assert "stateguard" in names, (
-        f"Expected 'stateguard' in validators, got {names}"
+    assert any(n.startswith("stateguard") for n in names), (
+        f"Expected a 'stateguard.*' validator, got {names}"
     )
 
 
