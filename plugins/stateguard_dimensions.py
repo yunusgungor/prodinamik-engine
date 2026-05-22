@@ -6,7 +6,7 @@ discoverable, enable/disable-able :class:`PluginBase` plugin.
 Each plugin:
 - Lazily imports its StateGuard validator
 - Exposes ``provides_validators`` in the manifest
-- Implements ``get_validators()`` for pipeline integration
+- Implements ``get_validators()`` for pipeline integration (returns ``Validator`` subclass)
 - Implements ``get_tools()`` for CLI/manual invocation
 
 Registered IDs:
@@ -15,13 +15,23 @@ Registered IDs:
     - ``prodinamik.stateguard.quantitative``
     - ``prodinamik.stateguard.behavioral``
     - ``prodinamik.stateguard.security``
+
+Usage::
+
+    from plugins.stateguard_dimensions import StructuralPlugin
+
+    plugin = StructuralPlugin()
+    validators = plugin.get_validators()  # → List[Validator]
+    result = await validators[0].validate(artifact)
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any, Callable, Dict, List
 
 from engine.plugin import PluginBase, PluginManifest, PluginType, PluginTool
+from engine.profile import Validator, ValidatorDef, ValidationResult, ValidatorTier
 
 
 # ──────────────────────────────────────────────
@@ -47,6 +57,10 @@ def _load_validator(dimension: str):
 
     try:
         import importlib
+        # Retry: skip sentence-transformers import (too slow for lazy init)
+        import os
+        os.environ["SENTENCE_TRANSFORMERS_AUTO"] = "0"
+
         mod_path = f"stateguard.dimensions.{dimension}"
         mod = importlib.import_module(mod_path)
         # Each dimension has a class named like StructuralValidator etc.
@@ -62,6 +76,98 @@ def _load_validator(dimension: str):
     except (ImportError, AttributeError, Exception):
         _VALIDATOR_CACHE[dimension] = None
         return None
+
+
+# ──────────────────────────────────────────────
+# DimensionValidatorAdapter — Validator subclass
+# ──────────────────────────────────────────────
+
+
+class DimensionValidatorAdapter(Validator):
+    """Wraps a StateGuard dimension validator as a Prodinamik :class:`Validator`.
+
+    This bridges the plugin system's :meth:`get_validators` (which must
+    return :class:`Validator` instances) with StateGuard's dimension-level
+    validation callables.  The returned :class:`ValidationResult` is fully
+    compatible with :class:`ValidatorPipeline`.
+    """
+
+    def __init__(
+        self,
+        dimension: str,
+        validate_fn: Callable,
+        tier: ValidatorTier = ValidatorTier.T2,
+        critical: bool = False,
+    ) -> None:
+        defn = ValidatorDef(
+            name=f"stateguard.{dimension}",
+            tier=tier,
+            critical=critical,
+            timeout_seconds=120,
+            depends_on=[],
+            cache_ttl=3600,
+        )
+        super().__init__(defn)
+        self._validate_fn = validate_fn
+        self._dimension = dimension
+
+    async def validate(self, artifact: Any) -> ValidationResult:
+        """Run the StateGuard dimension validator on *artifact*.
+
+        Args:
+            artifact: The data to validate.
+
+        Returns:
+            A Prodinamik :class:`ValidationResult` with ``passed``,
+            ``score``, ``message``, and dimension details.
+        """
+        if artifact is None:
+            return ValidationResult(
+                passed=False,
+                message=f"❌ StateGuard {self._dimension}: artifact is None",
+            )
+
+        try:
+            result = self._validate_fn(artifact, {})
+        except Exception as exc:
+            return ValidationResult(
+                passed=False,
+                message=f"❌ StateGuard {self._dimension} error: {exc}",
+                details={"error": str(exc), "dimension": self._dimension},
+            )
+
+        # Map StateGuard ValidatorResult → Prodinamik ValidationResult
+        score = getattr(result, "score", 0.0)
+        if not math.isfinite(score):
+            score = 0.0
+
+        passed = bool(getattr(result, "passed", False))
+
+        details: dict[str, Any] = {
+            "dimension": self._dimension,
+            "source": "stateguard",
+            "validator": self.name,
+        }
+        sg_details = getattr(result, "details", None)
+        if sg_details:
+            details["stateguard_details"] = sg_details
+        sg_error = getattr(result, "error", None)
+        if sg_error:
+            details["error"] = sg_error
+
+        message = (
+            f"✅ StateGuard {self._dimension}: score={score:.1f}"
+            if passed
+            else f"❌ StateGuard {self._dimension}: score={score:.1f}"
+        )
+
+        return ValidationResult(
+            passed=passed,
+            message=message,
+            details=details,
+            skipped=False,
+            cost_usd=0.0,
+        )
 
 
 # ──────────────────────────────────────────────
@@ -97,23 +203,26 @@ class _DimensionPluginBase(PluginBase):
 
     # ── Plugin Capabilities ────
 
-    def get_validators(self) -> List[Callable]:
-        """Return a list with one validator callable."""
-        validator = self._get_validator()
-        if validator is None:
+    def get_validators(self) -> list:  # type: ignore[override]
+        """Return a list with one :class:`DimensionValidatorAdapter`.
+
+        Returns:
+            A list containing one :class:`Validator` subclass that
+            wraps the StateGuard dimension validator.  If the
+            dimension validator is unavailable, returns an empty list.
+        """
+        sg_validator = self._get_validator()
+        if sg_validator is None:
             return []
 
-        def validate(output: Any, context: dict | None = None) -> dict:
-            result = validator.validate(output, context)
-            return {
-                "passed": result.passed,
-                "score": result.score,
-                "dimension": result.dimension.value if hasattr(result.dimension, "value") else str(result.dimension),
-                "details": result.details,
-                "error": result.error,
-            }
-
-        return [validate]
+        return [
+            DimensionValidatorAdapter(
+                dimension=self.dimension,
+                validate_fn=sg_validator.validate,
+                tier=ValidatorTier.T2,
+                critical=False,
+            )
+        ]
 
     def get_tools(self) -> List[PluginTool]:
         """Expose a tool for CLI/manual invocation."""
@@ -124,7 +233,7 @@ class _DimensionPluginBase(PluginBase):
 
             validator = self._get_validator()
             if validator is None:
-                return {"error": f"StateGuard {self.dimension} validator unavailable"}
+                return {"error": f"StateGuard {self.display_name} validator unavailable"}
 
             ctx = json.loads(context) if isinstance(context, str) else {}
             result = validator.validate(output, ctx)
@@ -155,7 +264,7 @@ class _DimensionPluginBase(PluginBase):
         return [
             PluginTool(
                 name=f"stateguard_{self.dimension}_validate",
-                description=f"Run StateGuard {self.displayName} validation on output",
+                description=f"Run StateGuard {self.display_name} validation on output",
                 handler=_validate_tool,
                 parameters={
                     "output": {"type": "string", "description": "The output to validate"},
@@ -177,7 +286,7 @@ class _DimensionPluginBase(PluginBase):
         """Validate that StateGuard is importable on enable."""
         if self._get_validator() is None:
             raise RuntimeError(
-                f"StateGuard {self.displayName} validator not available. "
+                f"StateGuard {self.display_name} validator not available. "
                 f"Ensure stateguard is installed."
             )
 
@@ -200,32 +309,27 @@ class StructuralPlugin(_DimensionPluginBase):
     """StateGuard Structural Validation — JSON schema, regex, type checks."""
     dimension = "structural"
     display_name = "Structural"
-    displayName = "Structural"
 
 
 class SemanticPlugin(_DimensionPluginBase):
     """StateGuard Semantic Validation — embedding similarity, cross-validation."""
     dimension = "semantic"
     display_name = "Semantic"
-    displayName = "Semantic"
 
 
 class QuantitativePlugin(_DimensionPluginBase):
     """StateGuard Quantitative Validation — outlier detection, Z-Score, Isolation Forest."""
     dimension = "quantitative"
     display_name = "Quantitative"
-    displayName = "Quantitative"
 
 
 class BehavioralPlugin(_DimensionPluginBase):
     """StateGuard Behavioral Validation — state machine, snapshot comparison."""
     dimension = "behavioral"
     display_name = "Behavioral"
-    displayName = "Behavioral"
 
 
 class SecurityPlugin(_DimensionPluginBase):
     """StateGuard Security Validation — prompt injection, pattern detection."""
     dimension = "security"
     display_name = "Security"
-    displayName = "Security"

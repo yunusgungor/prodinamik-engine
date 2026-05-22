@@ -64,8 +64,64 @@ class ProdinamikEngine:
         # Discover profiles
         self.profile_registry = _discover_profiles()
 
+        # ── EventStore & DecisionBridge (lazy — created on first access) ──
+        self._event_store = None
+        self._decision_bridge = None
+        self._hitl_handler = None
+
         self.log.info(f"Engine initialized: {len(self.profile_registry)} profiles, "
                        f"data_dir={self.config.data_dir}")
+
+    # ──────────────────────────────────────────────
+    # EventStore & DecisionBridge
+    # ──────────────────────────────────────────────
+
+    @property
+    def event_store(self):
+        """Lazy-initialised :class:`EventStore` instance.
+
+        Creates the EventStore at ``{data_dir}/runs/engine/events``
+        on first access.  This avoids writing events when the engine
+        is used as a library without a running pipeline.
+        """
+        if self._event_store is None:
+            from engine.event_store import EventStore
+            base = self.config.data_dir
+            self._event_store = EventStore(base_path=base, slug="engine")
+            self.log.debug(f"EventStore created: {self._event_store.events_dir}")
+        return self._event_store
+
+    @property
+    def decision_bridge(self):
+        """Lazy-initialised :class:`ProdinamikDecisionBridge` instance.
+
+        Shares the engine's EventStore so that all validation decisions
+        are automatically persisted.  The bridge is created on first
+        access — no overhead if no pipeline uses validation logging.
+        """
+        if self._decision_bridge is None:
+            from engine.decision_bridge import ProdinamikDecisionBridge
+            self._decision_bridge = ProdinamikDecisionBridge(
+                event_store=self.event_store,
+                run_slug="engine",
+            )
+            self.log.debug("DecisionBridge initialized")
+        return self._decision_bridge
+
+    @property
+    def hitl_handler(self):
+        """Lazy-initialised :class:`ProdinamikHITLHandler` instance.
+
+        Created on first access so that pipeline HITL escalations
+        flow through the engine's HumanLoopManager.
+        """
+        if self._hitl_handler is None:
+            from engine.hitl_bridge import ProdinamikHITLHandler
+            self._hitl_handler = ProdinamikHITLHandler(
+                timeout_minutes=5,
+            )
+            self.log.debug("HITLHandler initialized")
+        return self._hitl_handler
 
     # ──────────────────────────────────────────────
     # Profile access
@@ -167,6 +223,20 @@ class ProdinamikEngine:
                     # Her sorunun kendi timeout'u var, en büyüğünü kullan
                     for au in state_def.hitl.ask_user:
                         timeout = max(timeout, au.timeout_seconds)
+
+                # ── HITLHandler escalation (eğer initialized ise) ──
+                if self._hitl_handler is not None:
+                    try:
+                        self._hitl_handler.request_approval({
+                            "step": current_state,
+                            "run_slug": slug,
+                            "questions": questions,
+                            "error": f"Run '{slug}' paused at '{current_state}' — awaiting input",
+                            "timeout": timeout,
+                        })
+                        self.log.info(f"HITL escalation created for {slug} @ {current_state}")
+                    except Exception as e:
+                        self.log.warning(f"HITL escalation failed (non-blocking): {e}")
 
                 return {
                     "success": True,
@@ -284,9 +354,13 @@ class ProdinamikEngine:
 
     def status(self) -> dict:
         """Engine health and stats"""
-        return {
+        info = {
             "profiles": self.list_profiles(),
             "data_dir": self.config.data_dir,
             "active_runs": len(self.run_manager.list_runs()),
             "config": self.config.to_dict(),
         }
+        # Add EventStore stats if initialized
+        if self._event_store is not None:
+            info["event_store"] = self._event_store.stats()
+        return info

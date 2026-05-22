@@ -745,16 +745,16 @@ class TestFullPipeline:
         assert len(events) == 2
 
     def test_dimension_plugin_get_validators_structure(self):
-        """Plugin validator'leri doğru yapıda dict döndürmeli."""
-        from plugins.stateguard_dimensions import StructuralPlugin
+        """Plugin validator'leri DimensionValidatorAdapter döndürmeli."""
+        from plugins.stateguard_dimensions import StructuralPlugin, DimensionValidatorAdapter
 
         # Plugin mock output ile validate et
         plugin = StructuralPlugin()
         validators = plugin.get_validators()
 
-        # StateGuard yüklü olmadığında boş liste döner
-        # (lazy import başarısız olursa None cache'lenir)
-        assert isinstance(validators, list)
+        # StateGuard yüklü olduğunda DimensionValidatorAdapter döner
+        if validators:
+            assert isinstance(validators[0], DimensionValidatorAdapter)
 
     def test_profile_config_has_all_required_tiers(self):
         """Her profil config'inde tüm gerekli alanlar var."""

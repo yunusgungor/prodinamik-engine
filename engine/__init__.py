@@ -18,7 +18,7 @@ from .log import setup as setup_logging, get_logger
 from .profile import ProductProfile, Budget, ValidatorDef, AdapterDef, StoreDef, ValidatorTier
 from .state_machine import StateMachine, StateMachineConfig, StateType, TransitionType, RuntimeState
 from .run_manager import RunManager
-from .event_store import EventStore, Event, CostAwareEvent
+from .event_store import EventStore, Event, CostAwareEvent, EventType, EventRetentionPolicy
 from .validators import ValidatorPipeline, ContentAddressableCache, CachePolicy
 from .degradation import DegradationManager, DegradationLevel
 from .cost import CostTracker, EfficiencyTracker
@@ -91,6 +91,7 @@ from plugins.stateguard_dimensions import (
     QuantitativePlugin,
     BehavioralPlugin,
     SecurityPlugin,
+    DimensionValidatorAdapter,
 )
 # ── HITL Bridge ──
 from .hitl_bridge import ProdinamikHITLHandler
@@ -129,6 +130,8 @@ __all__ = [
     "EventStore",
     "Event",
     "CostAwareEvent",
+    "EventType",
+    "EventRetentionPolicy",
     "ValidatorPipeline",
     "ContentAddressableCache",
     "CachePolicy",
@@ -227,6 +230,7 @@ __all__ = [
     "QuantitativePlugin",
     "BehavioralPlugin",
     "SecurityPlugin",
+    "DimensionValidatorAdapter",
     # HITL Bridge
     "ProdinamikHITLHandler",
     # StateGuard Profile Config

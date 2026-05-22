@@ -26,6 +26,48 @@ from engine.profile import Validator, ValidatorDef, ValidatorTier, ValidationRes
 
 _StateGuardEngine = None
 
+# Map validator name suffix → ValidationDimension enum value
+_DIMENSION_MAP: dict[str, Any] = {}
+
+
+def _resolve_dimension(validator_name: str) -> Any:
+    """Extract ValidationDimension from a validator name.
+
+    Tries suffixes like ``stateguard.structural`` or ``sg-semantic``.
+    Falls back to ``ValidationDimension.STRUCTURAL``.
+    """
+    global _DIMENSION_MAP
+    if not _DIMENSION_MAP:
+        try:
+            from stateguard.models.enums import ValidationDimension
+            _DIMENSION_MAP = {
+                "structural": ValidationDimension.STRUCTURAL,
+                "semantic": ValidationDimension.SEMANTIC,
+                "quantitative": ValidationDimension.QUANTITATIVE,
+                "behavioral": ValidationDimension.BEHAVIORAL,
+                "security": ValidationDimension.SECURITY,
+            }
+        except ImportError:
+            _DIMENSION_MAP = {}
+
+    # Try last part of dotted name: "stateguard.structural" → "structural"
+    parts = validator_name.rsplit(".", 1)
+    suffix = parts[-1].lower()
+    if suffix in _DIMENSION_MAP:
+        return _DIMENSION_MAP[suffix]
+
+    # Try hyphenated: "sg-semantic" → "semantic"
+    suffix = validator_name.rsplit("-", 1)[-1].lower()
+    if suffix in _DIMENSION_MAP:
+        return _DIMENSION_MAP[suffix]
+
+    # Fallback
+    try:
+        from stateguard.models.enums import ValidationDimension
+        return ValidationDimension.STRUCTURAL
+    except ImportError:
+        return None
+
 
 def _get_stateguard_engine():
     """Lazy-import and cache the StateGuard :class:`ValidationEngine`."""
@@ -96,9 +138,11 @@ class StateGuardValidator(Validator):
        block Prodinamik startup when StateGuard is not installed.
     """
 
-    def __init__(self, defn: ValidatorDef, engine: Any | None = None) -> None:
+    def __init__(self, defn: ValidatorDef, engine: Any | None = None,
+                 decision_bridge: Any | None = None) -> None:
         super().__init__(defn)
         self._engine_instance = engine  # Allow injection for testing
+        self._decision_bridge = decision_bridge  # Optional auto-log
 
     # ── Properties ────────────────────────────
 
@@ -151,11 +195,51 @@ class StateGuardValidator(Validator):
                 details={"error": str(exc), "validator": self.name},
             )
 
-        return _map_engine_result(sg_result, self.name)
+        result = _map_engine_result(sg_result, self.name)
+
+        # Auto-log via DecisionBridge if configured
+        self._maybe_log_decision(artifact, result)
+
+        return result
 
     async def auto_fix(self, artifact: Any) -> Any:
         """StateGuard does **not** implement auto-fix — pass through."""
         return artifact
+
+    # ── Decision logging ─────────────────────────
+
+    def _maybe_log_decision(self, artifact: Any, result: ValidationResult) -> None:
+        """If a decision_bridge is configured, log this validation outcome.
+
+        Args:
+            artifact: The validated artifact (used for context).
+            result: The :class:`ValidationResult` returned by ``validate()``.
+        """
+        if self._decision_bridge is None:
+            return
+
+        try:
+            from stateguard.models.log import DecisionEntry as SGDecisionEntry
+
+            entry = SGDecisionEntry(
+                agent_id=self.name,
+                step_id=f"tier_{self.defn.tier.value}",
+                dimension=_resolve_dimension(self.name),
+                score=result.details.get("overall_score", 0.0)
+                if isinstance(result.details, dict)
+                else 0.0,
+                decision="pass" if result.passed else "fail",
+                details={
+                    "validator": self.name,
+                    "tier": self.defn.tier.value if hasattr(self.defn, "tier") else "?",
+                    "message": result.message,
+                    "source": "stateguard_bridge",
+                },
+            )
+            self._decision_bridge.log(entry)
+        except Exception:
+            # Fail-open: logging failure must not break validation
+            pass
 
     def explain(self, result: ValidationResult) -> str:
         """Human-readable explanation of the validation outcome."""

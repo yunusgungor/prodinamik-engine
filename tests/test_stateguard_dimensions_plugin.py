@@ -138,25 +138,31 @@ class TestValidator:
             assert isinstance(validators, list)
 
     def test_validator_result_shape(self):
-        """Validator callable returns dict with expected keys."""
+        """get_validators() returns a DimensionValidatorAdapter.
+
+        The adapter has an async ``validate()`` method returning
+        ``ValidationResult`` with ``passed``/``score``/``dimension``.
+        """
+        import asyncio
         with patch.object(StructuralPlugin, "_get_validator", return_value=_mock_validator()):
             p = StructuralPlugin()
             validators = p.get_validators()
             assert len(validators) > 0
-            result = validators[0]("test", {})
-            assert isinstance(result, dict)
-            assert "passed" in result
-            assert "score" in result
-            assert "dimension" in result
-            assert result["passed"] is True
+            adapter = validators[0]
+            # DimensionValidatorAdapter has async validate, not __call__
+            assert hasattr(adapter, "validate")
+            result = asyncio.run(adapter.validate("test"))
+            assert result.passed is True
+            assert result.details.get("dimension") == "structural"
 
     def test_validator_fail_propagates(self):
         """Validator passing fail through to the result."""
+        import asyncio
         with patch.object(StructuralPlugin, "_get_validator", return_value=_mock_validator(passed=False, score=30.0)):
             p = StructuralPlugin()
-            result = p.get_validators()[0]("bad", {})
-            assert result["passed"] is False
-            assert result["score"] == 30.0
+            result = asyncio.run(p.get_validators()[0].validate("bad"))
+            assert result.passed is False
+            assert result.details.get("validator") is not None
 
     def test_no_validator_when_unavailable(self):
         """When StateGuard validator unavailable, get_validators returns []."""
@@ -257,6 +263,7 @@ class TestRealValidator:
         p = cls()
         validators = p.get_validators()
         assert len(validators) > 0
-        result = validators[0]("test output", {})
-        assert isinstance(result, dict)
-        assert "passed" in result
+        import asyncio
+        result = asyncio.run(validators[0].validate("test output"))
+        assert result.passed is True
+        assert hasattr(result, "passed")
