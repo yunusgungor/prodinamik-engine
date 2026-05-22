@@ -100,6 +100,8 @@ from .stateguard_config import (
     make_profile_validators,
     list_profile_configs,
 )
+# ── Decision Log Bridge ──
+from .decision_bridge import ProdinamikDecisionBridge
 
 # ── LLM & Agent Plugin Infrastructure ──
 from .llm_base import (
@@ -231,6 +233,8 @@ __all__ = [
     "STATEGUARD_PROFILE_CONFIG",
     "make_profile_validators",
     "list_profile_configs",
+    # Decision Log Bridge
+    "ProdinamikDecisionBridge",
     # LLM & Agent Plugin Infrastructure
     "LLMProviderPlugin",
     "LLMProviderConfig",
