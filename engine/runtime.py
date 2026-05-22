@@ -102,6 +102,11 @@ class AsyncEngine:
         # Per-slug EventStore cache (lazy init)
         self._event_stores: Dict[str, EventStore] = {}
 
+        # ── StateGuard Integration (lazy init) ──
+        self._sg_event_store: Optional[EventStore] = None
+        self._sg_decision_bridge: Any = None
+        self._sg_hitl_handler: Any = None
+
         # Profile registry (lazy)
         self._profile_cache: Dict[str, ProductProfile] = {}
 
@@ -134,6 +139,55 @@ class AsyncEngine:
     def on_hitl_timeout(self, callback: Callable):
         """Register a HITL timeout callback (Hermes plugin kullanır)"""
         self._hitl_timeout_callbacks.append(callback)
+
+    # ── StateGuard Integration Properties ─────────
+
+    @property
+    def event_store(self) -> EventStore:
+        """Lazy-initialised central :class:`EventStore` instance.
+
+        Unlike ``_get_event_store(slug)`` (per-run stores), this returns
+        a single engine-level store at ``{data_dir}/runs/engine/events``,
+        used by DecisionBridge for persisting validation decisions.
+        Created on first access — no overhead when StateGuard is unused.
+        """
+        if self._sg_event_store is None:
+            base = self.config.data_dir
+            self._sg_event_store = EventStore(base_path=base, slug="engine")
+            self.log.debug(f"SG EventStore created: {self._sg_event_store.events_dir}")
+        return self._sg_event_store
+
+    @property
+    def decision_bridge(self):
+        """Lazy-initialised :class:`ProdinamikDecisionBridge` instance.
+
+        Shares the engine-level EventStore so that all validation
+        decisions are automatically persisted to durable storage.
+        """
+        if self._sg_decision_bridge is None:
+            from .decision_bridge import ProdinamikDecisionBridge
+            self._sg_decision_bridge = ProdinamikDecisionBridge(
+                event_store=self.event_store,
+                run_slug="engine",
+            )
+            self.log.debug("SG DecisionBridge initialized")
+        return self._sg_decision_bridge
+
+    @property
+    def hitl_handler(self):
+        """Lazy-initialised :class:`ProdinamikHITLHandler` instance.
+
+        Pipeline HITL escalations flow through this handler.
+        The Hermes plugin can also register ``on_hitl_timeout``
+        callbacks via the existing ``on_hitl_timeout()`` method.
+        """
+        if self._sg_hitl_handler is None:
+            from .hitl_bridge import ProdinamikHITLHandler
+            self._sg_hitl_handler = ProdinamikHITLHandler(
+                timeout_minutes=5,
+            )
+            self.log.debug("SG HITLHandler initialized")
+        return self._sg_hitl_handler
 
     def _check_auto_remediation(self, slug: str, from_state: str, to_state: str) -> Optional[dict]:
         """Check if auto-remediation is needed after a transition.
