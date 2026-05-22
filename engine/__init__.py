@@ -92,6 +92,8 @@ from plugins.stateguard_dimensions import (
     BehavioralPlugin,
     SecurityPlugin,
 )
+# ── HITL Bridge ──
+from .hitl_bridge import ProdinamikHITLHandler
 
 # ── LLM & Agent Plugin Infrastructure ──
 from .llm_base import (
@@ -217,6 +219,8 @@ __all__ = [
     "QuantitativePlugin",
     "BehavioralPlugin",
     "SecurityPlugin",
+    # HITL Bridge
+    "ProdinamikHITLHandler",
     # LLM & Agent Plugin Infrastructure
     "LLMProviderPlugin",
     "LLMProviderConfig",
