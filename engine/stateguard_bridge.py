@@ -15,6 +15,7 @@ Usage::
 
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -326,7 +327,21 @@ def _map_engine_result(
         details["dimension_scores"] = sg_result.dimension_scores
 
     if hasattr(sg_result, "details") and sg_result.details:
-        details["stateguard_details"] = sg_result.details
+        # Sanitize: convert non-serializable objects (e.g. DecisionEntry) to dicts
+        sanitized = {}
+        for dk, dv in sg_result.details.items():
+            try:
+                json.dumps(dv)
+                sanitized[dk] = dv
+            except (TypeError, ValueError):
+                # Non-serializable: try .dict() or .__dict__ or str()
+                if hasattr(dv, "dict"):
+                    sanitized[dk] = dv.dict()
+                elif hasattr(dv, "__dict__"):
+                    sanitized[dk] = dv.__dict__
+                else:
+                    sanitized[dk] = str(dv)
+        details["stateguard_details"] = sanitized
 
     # Cost: StateGuard doesn't track cost, but make it explicit
     return ValidationResult(

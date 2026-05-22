@@ -673,7 +673,185 @@ class AsyncEngine:
         except Exception as e:
             self.log.warning(f"Auto-remediation check failed: {e}")
 
+        # ── Validasyon: hedef state'in validatörlerini çalıştır ──
+        try:
+            validation_results = self._run_validators_for_state(slug, profile, to_state)
+            if validation_results:
+                total = len(validation_results)
+                passed = sum(1 for r in validation_results.values() if isinstance(r, dict) and r.get('passed', False))
+                failed = total - passed
+                if failed > 0:
+                    self.log.info(f"Transition {from_state}→{to_state}: "
+                                   f"validation {passed}/{total} passed ({failed} failed)")
+                else:
+                    self.log.info(f"Transition {from_state}→{to_state}: "
+                                   f"all {total} validators passed ✅")
+        except Exception as e:
+            self.log.warning(f"Validator execution failed for {slug}: {e}")
+
         return run
+
+    # ──────────────────────────────────────────────
+    # Validator Integration
+    # ──────────────────────────────────────────────
+
+    def _create_validator(self, defn, profile) -> Optional[Any]:
+        """Convert a ValidatorDef to a concrete Validator instance.
+
+        Supports:
+          - ``stateguard.{dimension}`` → :class:`StateGuardValidator`
+          - All others → logged as skipped (stub)
+        """
+        name = defn.name
+
+        # StateGuard validators
+        if name.startswith("stateguard."):
+            try:
+                from engine.stateguard_bridge import StateGuardValidator, make_stateguard_def
+                # Reuse the engine-level decision bridge so validation
+                # decisions are automatically persisted to the event store.
+                sg_def = make_stateguard_def(
+                    name=name,
+                    tier=defn.tier,
+                    critical=defn.critical,
+                    timeout_seconds=defn.timeout_seconds,
+                )
+                return StateGuardValidator(sg_def, decision_bridge=self.decision_bridge)
+            except Exception as e:
+                self.log.warning(f"Cannot create StateGuardValidator '{name}': {e}")
+                return None
+
+        # Built-in validators (SpecCheck, BuildCheck, TestCheck, LintCheck, …)
+        # These are defined in the YAML but have no concrete implementation yet.
+        # Log at debug level; they are registered as placeholders.
+        self.log.debug(f"Validator '{name}' has no concrete implementation — skipped")
+        return None
+
+    def _build_validation_artifact(self, slug: str, profile) -> str:
+        """Build a text artifact from the current run state for validation.
+
+        Reads the run's ``content-object.md`` and returns its body text.
+        Falls back to the run title if the content is empty or absent.
+        """
+        try:
+            run = self.run_manager.get_run(slug)
+            if run:
+                from pathlib import Path
+                run_path = Path(self.config.data_dir) / "runs" / "active" / slug
+                content_file = run_path / "content-object.md"
+                body: str = ""
+                if content_file.exists():
+                    text = content_file.read_text(encoding="utf-8")
+                    # Strip YAML frontmatter
+                    if text.startswith("---"):
+                        parts = text.split("---", 2)
+                        if len(parts) >= 3:
+                            body = parts[2].strip()
+                    else:
+                        body = text.strip()
+                # Use run title as fallback when body is empty
+                if not body:
+                    body = run.meta.title or slug
+                return body
+        except Exception as e:
+            self.log.debug(f"Cannot build validation artifact for {slug}: {e}")
+        return slug
+
+    def _run_validators_for_state(self, slug: str, profile, to_state: str) -> dict:
+        """Run validators configured for *to_state* and return results.
+
+        Steps:
+          1. Collect validator defs from the profile that apply to *to_state*
+             (state-specific validators listed in the YAML + global StateGuard defs).
+          2. Instantiate concrete Validator objects via ``_create_validator``.
+          3. Execute them through :class:`ValidatorPipeline`.
+          4. Persist results in the run's event store.
+
+        Returns a dict of ``{validator_name: result_dict}``.
+        """
+        # 1. Determine which validators apply to this state
+        sm = profile.state_machine
+        if not sm:
+            return {}
+
+        # Get state-specific validator names from the YAML state definition
+        state_def = sm.config.states.get(to_state) if sm.config else None
+        state_validator_names: set = set()
+        if state_def and hasattr(state_def, 'validators') and state_def.validators:
+            state_validator_names = set(state_def.validators)
+
+        all_defs = profile.validators
+
+        # Collect defs that apply:
+        #   (a) State-specific: named in the state's ``validators: [...]`` list
+        #   (b) StateGuard: always run as global cross-cutting validators
+        defs_to_run = [
+            d for d in all_defs
+            if d.name in state_validator_names or d.name.startswith("stateguard.")
+        ]
+
+        if not defs_to_run:
+            return {}
+
+        # 2. Instantiate validators
+        validators = []
+        for d in defs_to_run:
+            v = self._create_validator(d, profile)
+            if v is not None:
+                validators.append(v)
+
+        if not validators:
+            return {}
+
+        # 3. Run via ValidatorPipeline
+        from engine.validators import ValidatorPipeline, PipelineResult
+        from engine.profile import ValidatorTier
+
+        artifact = self._build_validation_artifact(slug, profile)
+
+        t1 = [v for v in validators if v.tier == ValidatorTier.T1]
+        t2 = [v for v in validators if v.tier == ValidatorTier.T2]
+        t3 = [v for v in validators if v.tier == ValidatorTier.T3]
+
+        import asyncio
+        try:
+            pipeline = ValidatorPipeline()
+            result: PipelineResult = asyncio.run(
+                pipeline.run(artifact, t1, t2, t3)
+            )
+        except Exception as e:
+            self.log.warning(f"ValidatorPipeline execution failed: {e}")
+            return {}
+
+        # 4. Persist results in event store
+        store = self._get_event_store(slug)
+        results_dict: dict = {}
+        for vname, vresult in result.results.items():
+            results_dict[vname] = {
+                "passed": vresult.passed,
+                "message": vresult.message,
+                "skipped": vresult.skipped,
+                "cost_usd": vresult.cost_usd,
+            }
+            try:
+                store.append(CostAwareEvent.from_validation(
+                    sequence=store._last_sequence + 1,
+                    run_slug=slug,
+                    validator_name=vname,
+                    tier=1 if vresult.skipped else (
+                        next((d.tier.value for d in all_defs if d.name == vname), 1)
+                    ),
+                    passed=vresult.passed,
+                    cost_usd=vresult.cost_usd,
+                    details={
+                        "message": vresult.message,
+                        "skipped": vresult.skipped,
+                    },
+                ))
+            except Exception as e:
+                self.log.debug(f"Failed to persist validation event: {e}")
+
+        return results_dict
 
     async def transition_async(self, slug: str, to_state: str) -> Run:
         """Transition with async hook support"""
