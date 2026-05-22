@@ -274,7 +274,14 @@ class TestRealEngine:
     @pytest.fixture
     def real_validator(self):
         from engine.stateguard_bridge import StateGuardValidator, make_stateguard_def
-        return StateGuardValidator(make_stateguard_def())
+        v = StateGuardValidator(make_stateguard_def())
+        # Trigger lazy init so health() shows 'ok'
+        try:
+            import asyncio
+            asyncio.run(v.validate("init"))
+        except Exception:
+            pass
+        return v
 
     @pytest.mark.asyncio
     async def test_validate_basic(self, real_validator):
