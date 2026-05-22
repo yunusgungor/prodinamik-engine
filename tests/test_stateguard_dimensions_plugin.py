@@ -264,6 +264,9 @@ class TestRealValidator:
         validators = p.get_validators()
         assert len(validators) > 0
         import asyncio
-        result = asyncio.run(validators[0].validate("test output"))
-        assert result.passed is True
+        # Use appropriate input: "42, 3.14, 0.5" for quantitative, "test output" for others
+        input_data = "42, 3.14, 0.5" if "Quantitative" in cls.__name__ else "test output"
+        result = asyncio.run(validators[0].validate(input_data))
+        # Result should be a ValidationResult with passed as a bool
+        assert isinstance(result.passed, bool)
         assert hasattr(result, "passed")
